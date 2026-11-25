@@ -131,10 +131,8 @@ docker compose run --rm ccocr fetch-trust --dir /data/.ccocr/trust \
 ```
 
 The profile uses the OCR unit `/tsa/ocr` (CC TEST OCR TSU 01), which needs basic auth
-
-(`CCOCR_TSA_USER` / `CCOCR_TSA_PASSWORD` as environment secrets); the TSA is firewalled to known servers. On the PC that
-runs the CA itself, the container reaches it through `extra_hosts` (see
-`docker-compose.yml`). With `embed_validation: true` the TSA chain's OCSP/CRL
+(`CCOCR_TSA_USER` / `CCOCR_TSA_PASSWORD` as environment secrets). The TSA is
+firewalled to known servers. With `embed_validation: true` the TSA chain's OCSP/CRL
 answers are stored in the PDF, so it still validates when the CA is offline.
 
 ## Develop
