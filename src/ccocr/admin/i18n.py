@@ -8,11 +8,10 @@ catalogues are filled once the UI wording is final.
 
 from __future__ import annotations
 
+# Decided 25 Nov 2026: the console ships in English only for now. Add a language
+# here once its catalogue below is complete.
 LANGUAGES = {
     "en": "English",
-    "sl": "Slovenščina (translation pending)",
-    "sr-Latn": "Srpski – latinica (translation pending)",
-    "sr-Cyrl": "Српски – ћирилица (translation pending)",
 }
 
 CATALOG: dict[str, dict[str, str]] = {
