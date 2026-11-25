@@ -1,0 +1,43 @@
+# CC OCR profile using the CC Test CA TimeStamp service (test only, non-qualified).
+# Before first use, download the trust anchors (the root is checked against its pinned fingerprint):
+#   ccocr fetch-trust --dir /data/.ccocr/trust \
+#     --root-url http://pki-test.comp-consulting.eu/certs/root-2026.pem \
+#     --root-sha256 DD:79:4F:F8:E2:FE:E2:A8:16:CB:5B:26:DB:50:0F:47:B2:D7:C6:E6:D3:6C:5D:FB:2F:F8:96:53:FA:DE:9E:39 \
+#     --chain-url http://pki-test.comp-consulting.eu/certs/issuing-2026.crt
+# Never put this test root into an image or a production trust store.
+# If the TSA has basic auth on, set CCOCR_TSA_USER / CCOCR_TSA_PASSWORD as environment secrets.
+profile: cc-test-ca
+document_type: document
+document_types: [invoice, contract, document]
+
+optimiser:
+  pdf_image: original
+
+ocr:
+  osd: true
+  default: [slv, eng]
+  latin: [slv, hrv, srp_latn, eng]
+  cyrillic: [srp, srp_latn]
+  output: auto
+
+split:
+  proposals: [qr-separator, blank-page, text-rule]
+  rules:
+    - name: invoice-header
+      expr: 'top matches /(RAČUN|INVOICE)\s+(št|no)\.?/i AND NOT top contains "nadaljevanje"'
+      doctype: invoice
+  auto_accept: true
+
+output:
+  package: single
+  metadata: [xml, filename]
+  naming: "{doctype}_{batch}_{seq}"
+
+timestamp:
+  mode: http
+  url: http://pki-test.comp-consulting.eu:8318/tsa/ocr   # CC TEST OCR TSU 01, needs CCOCR_TSA_USER/PASSWORD
+  ca_file: /data/.ccocr/trust/root.pem
+  chain_file: /data/.ccocr/trust/chain.pem
+  embed_validation: true     # store OCSP/CRL of the TSA chain in the PDF (validates offline later)
+  required: true             # TSA down -> batch is retried, never delivered without a timestamp
+  qualified: false           # CC Test CA is not on an EU trusted list

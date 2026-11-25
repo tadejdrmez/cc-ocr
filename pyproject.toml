@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cc-ocr"
+version = "0.1.0"
+description = "CC OCR: scanned-document importer - OCR to searchable PDF/A and batch separation"
+requires-python = ">=3.11"
+dependencies = [
+  "ocrmypdf>=16",
+  "pikepdf>=9",
+  "pypdfium2>=4",
+  "img2pdf>=0.5",
+  "opencv-python-headless>=4.8",
+  "numpy>=1.26",
+  "Pillow>=10",
+  "zxing-cpp>=2.2",
+  "qrcode>=7.4",
+  "asn1crypto>=1.5",
+  "lxml>=5",
+  "PyYAML>=6",
+  "pyHanko>=0.25",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+ccocr = "ccocr.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ccocr = ["schemas/*.xsd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

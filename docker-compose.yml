@@ -1,0 +1,21 @@
+# Runs on a Windows PC with Docker Desktop or on a Linux server (e.g. the CC_archive server).
+#   docker compose up -d
+# Scans dropped into ./data/in come out in ./data/out.
+services:
+  ccocr:
+    image: cc-ocr:0.1.0
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ${CCOCR_DATA:-./data}:/data
+      # - ./my-config:/app/config:ro      # own watch.yaml
+      # - ./my-profiles:/app/profiles:ro  # own profiles
+    # On the PC that hosts the CC Test CA (no NAT loopback), point its name at the host:
+    # extra_hosts:
+    #   - "pki-test.comp-consulting.eu:host-gateway"
+    environment:
+      - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
+      # Profile for the CC Test CA TimeStamp service: /app/profiles/cc-test-ca.yaml
+      # (set it in your watch.yaml). If the TSA uses basic auth:
+      # - CCOCR_TSA_USER=...
+      # - CCOCR_TSA_PASSWORD=...

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CC OCR sidecar metadata, version 1. One file per output PDF, same base name. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ccocr="urn:cc:ocr:metadata:1"
+           targetNamespace="urn:cc:ocr:metadata:1"
+           elementFormDefault="qualified">
+
+  <xs:simpleType name="sha256">
+    <xs:restriction base="xs:string"><xs:pattern value="[0-9a-f]{64}"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="fieldType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="text"/><xs:enumeration value="number"/><xs:enumeration value="decimal"/>
+      <xs:enumeration value="date"/><xs:enumeration value="enum"/><xs:enumeration value="boolean"/>
+      <xs:enumeration value="identifier"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="document">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="file">
+          <xs:complexType>
+            <xs:attribute name="name" type="xs:string" use="required"/>
+            <!-- present for separate (sidecar) files; omitted when the XML is embedded in the PDF -->
+            <xs:attribute name="sha256" type="ccocr:sha256" use="optional"/>
+            <xs:attribute name="pages" type="xs:positiveInteger" use="required"/>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="profile" type="xs:string"/>
+        <xs:element name="validation">
+          <xs:complexType>
+            <!-- confirmed = operator confirmed; auto-accepted = proof of concept without operator step -->
+            <xs:attribute name="status" use="required">
+              <xs:simpleType><xs:restriction base="xs:string">
+                <xs:enumeration value="confirmed"/><xs:enumeration value="auto-accepted"/>
+              </xs:restriction></xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="confirmedBy" type="xs:string"/>
+            <xs:attribute name="at" type="xs:dateTime" use="required"/>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="documentType" type="xs:string"/>
+        <xs:element name="classification" type="xs:string" minOccurs="0"/>
+        <xs:element name="source">
+          <xs:complexType>
+            <xs:attribute name="batch" type="xs:string" use="required"/>
+            <xs:attribute name="sha256" type="ccocr:sha256" use="required"/>
+            <xs:attribute name="pages" type="xs:string" use="required"/>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="field" minOccurs="0" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:simpleContent>
+              <xs:extension base="xs:string">
+                <xs:attribute name="name" type="xs:string" use="required"/>
+                <xs:attribute name="type" type="ccocr:fieldType" use="required"/>
+                <xs:attribute name="source" type="xs:string"/>
+                <xs:attribute name="confidence" type="xs:decimal"/>
+              </xs:extension>
+            </xs:simpleContent>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="processing">
+          <xs:complexType>
+            <xs:attribute name="ocr" type="xs:string" use="required"/>
+            <xs:attribute name="languages" type="xs:string" use="required"/>
+            <xs:attribute name="scripts" type="xs:string" use="required"/>
+            <xs:attribute name="pages" type="xs:positiveInteger" use="required"/>
+            <xs:attribute name="image" type="xs:string" use="required"/>
+            <xs:attribute name="pdfa" type="xs:string" use="required"/>
+            <xs:attribute name="meanConfidence" type="xs:decimal"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

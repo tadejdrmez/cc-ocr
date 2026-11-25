@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OCR tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-osd \
+            tesseract-ocr-slv tesseract-ocr-eng tesseract-ocr-hrv tesseract-ocr-srp \
+            tesseract-ocr-srp-latn tesseract-ocr-bos tesseract-ocr-sqi ghostscript qpdf pngquant fonts-dejavu-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[test]'
+      - run: pytest -q
+
+  image:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t cc-ocr:${{ github.sha }} .
+      - name: Smoke test
+        run: |
+          mkdir -p data/in && pip install pillow numpy qrcode >/dev/null
+          PYTHONPATH=src python tests/synth.py data/in/demo.tif && touch data/in/demo.tif.done
+          sudo chown -R 1000:1000 data
+          docker run --rm -v "$PWD/data:/data" cc-ocr:${{ github.sha }} watch --config /app/config/watch.yaml --once
+          test "$(ls data/out/*.pdf | wc -l)" -eq 3
+          docker run --rm -v "$PWD/data:/data" cc-ocr:${{ github.sha }} verify /data/out --tsa-dir /data/.ccocr/test-tsa
+      - name: Export image for offline install
+        if: github.ref == 'refs/heads/main'
+        run: docker tag cc-ocr:${{ github.sha }} cc-ocr:0.1.0 && docker save cc-ocr:0.1.0 | gzip > cc-ocr-0.1.0.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: cc-ocr-image
+          path: cc-ocr-0.1.0.tar.gz
+          retention-days: 30
