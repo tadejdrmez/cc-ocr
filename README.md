@@ -113,7 +113,28 @@ is a `.tsr` token over the hash manifest.
 | `http` | Any RFC 3161 TSA, e.g. the cc-ca TimeStamp service. Set `timestamp.url`; credentials via `CCOCR_TSA_USER` / `CCOCR_TSA_PASSWORD`. |
 | `none` | No timestamp. |
 
-Every report marks non-qualified timestamps as such.
+Every report marks non-qualified timestamps as such. With `required: true`
+(default) a document is never delivered without a verified timestamp: if the
+TSA is down, the batch fails, is retried, and finally lands in `error/`.
+
+### CC Test CA (cc-ca TimeStamp service)
+
+Use `profiles/cc-test-ca.yaml`. Once per installation, download the test root
+(checked against its pinned SHA-256) and the issuing CA into the data volume,
+never into the image:
+
+```bash
+docker compose run --rm ccocr fetch-trust --dir /data/.ccocr/trust \
+  --root-url http://pki-test.comp-consulting.eu/certs/root-2026.pem \
+  --root-sha256 DD:79:4F:F8:E2:FE:E2:A8:16:CB:5B:26:DB:50:0F:47:B2:D7:C6:E6:D3:6C:5D:FB:2F:F8:96:53:FA:DE:9E:39 \
+  --chain-url http://pki-test.comp-consulting.eu/certs/issuing-2026.crt
+```
+
+The TSA is firewalled to known servers and may need basic auth
+(`CCOCR_TSA_USER` / `CCOCR_TSA_PASSWORD` as environment secrets). On the PC that
+runs the CA itself, the container reaches it through `extra_hosts` (see
+`docker-compose.yml`). With `embed_validation: true` the TSA chain's OCSP/CRL
+answers are stored in the PDF, so it still validates when the CA is offline.
 
 ## Develop
 

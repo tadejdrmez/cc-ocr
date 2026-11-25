@@ -10,8 +10,12 @@ services:
       - ${CCOCR_DATA:-./data}:/data
       # - ./my-config:/app/config:ro      # own watch.yaml
       # - ./my-profiles:/app/profiles:ro  # own profiles
+    # On the PC that hosts the CC Test CA (no NAT loopback), point its name at the host:
+    # extra_hosts:
+    #   - "pki-test.comp-consulting.eu:host-gateway"
     environment:
       - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
-      # For the cc-ca TimeStamp service set timestamp.mode: http and url in the profile, plus:
+      # Profile for the CC Test CA TimeStamp service: /app/profiles/cc-test-ca.yaml
+      # (set it in your watch.yaml). If the TSA uses basic auth:
       # - CCOCR_TSA_USER=...
       # - CCOCR_TSA_PASSWORD=...

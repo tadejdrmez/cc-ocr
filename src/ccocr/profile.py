@@ -68,6 +68,13 @@ DEFAULTS: dict[str, Any] = {
         "openssl_dir": "",
         "qualified": False,
         "hash": "sha256",
+        # A document is never delivered without a verified timestamp: if the TSA fails,
+        # the batch fails and the watcher retries it later (then error/).
+        "required": True,
+        "ca_file": "",  # trusted root (PEM/DER) used to verify the TSA's tokens
+        "chain_file": "",  # intermediate CA certificate(s)
+        # Fetch the TSA chain's OCSP/CRL at timestamping time and store them in the PDF (LTV).
+        "embed_validation": False,
     },
 }
 

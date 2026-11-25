@@ -112,7 +112,7 @@ def timestamp(data: bytes, cfg: dict[str, Any]) -> TimestampResult | None:
 def verify(data_path: Path, token_path: Path, cfg: dict[str, Any]) -> tuple[bool, str]:
     """Verify a .tsr against the data with ``openssl ts -verify``."""
     ca = cfg.get("ca_file") or ""
-    untrusted = cfg.get("tsa_cert") or ""
+    untrusted = cfg.get("tsa_cert") or cfg.get("chain_file") or ""
     tsa_dir = cfg.get("openssl_dir") or os.environ.get("CCOCR_TEST_TSA_DIR", "")
     if cfg.get("mode") == "openssl-local" and tsa_dir:
         ca = ca or str(Path(tsa_dir) / "ca.pem")
@@ -220,3 +220,32 @@ def serve_test_tsa(directory: Path, host: str = "0.0.0.0", port: int = 3180) -> 
 
     print(f"test TSA (NOT for production) listening on http://{host}:{port}/", flush=True)
     ThreadingHTTPServer((host, port), Handler).serve_forever()
+
+
+def fetch_trust(root_url: str, root_sha256: str, directory: Path, chain_urls: list[str] | None = None) -> tuple[Path, Path | None]:
+    """Download a TSA's root (and intermediates), refusing a root whose SHA-256 fingerprint differs from the pin."""
+    import ssl  # noqa: F401  (urllib needs it for https URLs)
+
+    from asn1crypto import pem, x509
+
+    def get(url: str) -> bytes:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            return r.read()
+
+    def to_der(data: bytes) -> bytes:
+        return pem.unarmor(data)[2] if pem.detect(data) else data
+
+    directory.mkdir(parents=True, exist_ok=True)
+    root_der = to_der(get(root_url))
+    fp = hashlib.sha256(root_der).hexdigest()
+    pin = root_sha256.replace(":", "").replace(" ", "").lower()
+    if fp != pin:
+        raise TimestampError(f"root fingerprint {fp} does not match the pinned {pin}; NOT trusting it")
+    x509.Certificate.load(root_der)  # parse check
+    root_path = directory / "root.pem"
+    root_path.write_bytes(pem.armor("CERTIFICATE", root_der))
+    chain_path = None
+    if chain_urls:
+        chain_path = directory / "chain.pem"
+        chain_path.write_bytes(b"".join(pem.armor("CERTIFICATE", to_der(get(u))) for u in chain_urls))
+    return root_path, chain_path

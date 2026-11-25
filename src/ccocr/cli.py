@@ -86,7 +86,8 @@ def cmd_verify(a: argparse.Namespace) -> int:
     from .pades import verify_pdf
     from .timestamp import verify
 
-    cfg = {"mode": "openssl-local" if a.tsa_dir else "http", "openssl_dir": a.tsa_dir or "", "ca_file": a.ca or ""}
+    cfg = {"mode": "openssl-local" if a.tsa_dir else "http", "openssl_dir": a.tsa_dir or "", "ca_file": a.ca or "",
+           "chain_file": a.chain or ""}
     bad = checked = 0
     folder = Path(a.dir)
     manifests = sorted(folder.glob("*.manifest.xml"))
@@ -127,6 +128,18 @@ def cmd_extract_xml(a: argparse.Namespace) -> int:
         out = Path(a.pdf).with_suffix(".xml")
         out.write_bytes(data)
         _log(f"wrote {out}")
+    return 0
+
+
+def cmd_fetch_trust(a: argparse.Namespace) -> int:
+    from .timestamp import TimestampError, fetch_trust
+
+    try:
+        root, chain = fetch_trust(a.root_url, a.root_sha256, Path(a.dir), a.chain_url)
+    except (TimestampError, OSError) as e:
+        _log(f"FAILED: {e}")
+        return 1
+    _log(f"root fingerprint matches; wrote {root}" + (f" and {chain}" if chain else ""))
     return 0
 
 
@@ -180,8 +193,16 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("verify", help="check hashes and timestamps in an output folder")
     s.add_argument("dir")
     s.add_argument("--tsa-dir")
-    s.add_argument("--ca")
+    s.add_argument("--ca", help="trusted root certificate")
+    s.add_argument("--chain", help="intermediate CA certificate(s)")
     s.set_defaults(fn=cmd_verify)
+
+    s = sub.add_parser("fetch-trust", help="download a TSA root (checked against its SHA-256 pin) and intermediates")
+    s.add_argument("--root-url", required=True)
+    s.add_argument("--root-sha256", required=True, help="expected fingerprint, e.g. DD:79:4F:...")
+    s.add_argument("--chain-url", action="append", default=[])
+    s.add_argument("--dir", required=True)
+    s.set_defaults(fn=cmd_fetch_trust)
 
     s = sub.add_parser("extract-xml", help="extract the metadata XML embedded in an output PDF")
     s.add_argument("pdf")

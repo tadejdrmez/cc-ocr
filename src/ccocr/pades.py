@@ -88,21 +88,56 @@ def _timestamper(cfg: dict[str, Any]):
     raise TimestampError(f"timestamp mode {mode!r} cannot timestamp a PDF")
 
 
+def _load_certs(path: str) -> list[Any]:
+    from asn1crypto import pem, x509
+
+    if not path:
+        return []
+    data = Path(path).read_bytes()
+    if pem.detect(data):
+        return [x509.Certificate.load(der) for _, _, der in pem.unarmor(data, multiple=True)]
+    return [x509.Certificate.load(data)]
+
+
+def trust_material(cfg: dict[str, Any]) -> tuple[list[Any], list[Any]]:
+    """(trust roots, intermediate certificates) from the timestamp config."""
+    ca = cfg.get("ca_file") or ""
+    tsa_dir = cfg.get("openssl_dir") or os.environ.get("CCOCR_TEST_TSA_DIR", "")
+    if not ca and cfg.get("mode") == "openssl-local" and tsa_dir and (Path(tsa_dir) / "ca.pem").exists():
+        ca = str(Path(tsa_dir) / "ca.pem")
+    return _load_certs(ca), _load_certs(cfg.get("chain_file") or "")
+
+
 def add_document_timestamp(pdf_path: Path, cfg: dict[str, Any]) -> dict[str, Any]:
-    """Append a PAdES document timestamp (ETSI.RFC3161) to the PDF in place."""
+    """Append a PAdES document timestamp (ETSI.RFC3161) to the PDF in place.
+
+    With ``embed_validation: true`` the TSA's certificate chain and its
+    OCSP/CRL answers are fetched now and stored in the PDF's DSS, so the
+    timestamp still validates later without the CA being reachable.
+    """
     from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
     from pyhanko.sign import signers
+    from pyhanko_certvalidator import ValidationContext
 
     ts = _timestamper(cfg)
+    vc = None
+    if cfg.get("embed_validation"):
+        roots, others = trust_material(cfg)
+        if not roots:
+            raise TimestampError("embed_validation needs timestamp.ca_file (the trusted root)")
+        vc = ValidationContext(trust_roots=roots, other_certs=others, allow_fetching=True)
     with open(pdf_path, "rb") as f:
         writer = IncrementalPdfFileWriter(f, strict=False)
         out = io.BytesIO()
-        signers.PdfTimeStamper(ts, field_name="CC-OCR-Timestamp").timestamp_pdf(writer, "sha256", output=out)
+        signers.PdfTimeStamper(ts, field_name="CC-OCR-Timestamp").timestamp_pdf(
+            writer, "sha256", validation_context=vc, output=out
+        )
     tmp = pdf_path.with_name(f".{pdf_path.name}.ts")
     tmp.write_bytes(out.getvalue())
     os.replace(tmp, pdf_path)
     info = read_timestamp(pdf_path)
     info["qualified"] = bool(cfg.get("qualified"))
+    info["validation_data_embedded"] = vc is not None
     return info
 
 
@@ -125,22 +160,13 @@ def read_timestamp(pdf_path: Path) -> dict[str, Any]:
 
 
 def verify_pdf(pdf_path: Path, cfg: dict[str, Any]) -> tuple[bool, str]:
-    """Check the document timestamp: integrity of the covered bytes and the TSA chain (if a CA is known)."""
-    from asn1crypto import pem, x509
+    """Check the document timestamp offline: covered bytes intact, token valid, chain to the configured root."""
     from pyhanko.pdf_utils.reader import PdfFileReader
     from pyhanko.sign.validation import validate_pdf_timestamp
     from pyhanko_certvalidator import ValidationContext
 
-    ca = cfg.get("ca_file") or ""
-    tsa_dir = cfg.get("openssl_dir") or os.environ.get("CCOCR_TEST_TSA_DIR", "")
-    if not ca and tsa_dir and (Path(tsa_dir) / "ca.pem").exists():
-        ca = str(Path(tsa_dir) / "ca.pem")
-    roots = []
-    if ca:
-        data = Path(ca).read_bytes()
-        for _, _, der in pem.unarmor(data, multiple=True) if pem.detect(data) else [(None, None, data)]:
-            roots.append(x509.Certificate.load(der))
-    vc = ValidationContext(trust_roots=roots, allow_fetching=False)
+    roots, others = trust_material(cfg)
+    vc = ValidationContext(trust_roots=roots, other_certs=others, allow_fetching=False)
     with open(pdf_path, "rb") as f:
         r = PdfFileReader(f, strict=False)
         sigs = [s for s in r.embedded_signatures if s.sig_object.get("/SubFilter") == "/ETSI.RFC3161"]
