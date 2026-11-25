@@ -146,3 +146,16 @@ def test_tsa_credentials_go_to_secrets_file(client, monkeypatch):
     monkeypatch.delenv("CCOCR_TSA_USER", raising=False)
     monkeypatch.setenv("CCOCR_SECRETS_FILE", str(secrets))
     assert timestamp.tsa_credentials() == ("ccocr", "s3cret!")
+
+
+def test_folder_accepts_host_path(client, monkeypatch):
+    d = client.data_dir
+    monkeypatch.setenv("CCOCR_HOST_MOUNTS", f"C:\\cc-ocr\\data={d};C:\\OCR_Work_SDS={d}/sds")
+    form = {"csrf": client.token, "name": "SDS", "in": r"C:\OCR_Work_SDS\data\in", "out": r"C:\OCR_Work_SDS\data\out",
+            "profile": "incoming-mixed", "duplicate": "error"}
+    r = client.post("/folders/save", data=form, follow_redirects=True)
+    assert "Folder saved" in r.text and r"C:\OCR_Work_SDS\data\in" in r.text
+    w = yaml.safe_load((d / ".ccocr" / "config" / "watch.yaml").read_text())
+    assert {"in": f"{d}/sds/data/in", "out": f"{d}/sds/data/out"}.items() <= w["folders"][1].items()
+    r = client.post("/folders/save", data={**form, "in": r"D:\Nope\in"})
+    assert r.status_code == 400 and "not shared with the container" in r.text

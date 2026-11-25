@@ -16,6 +16,7 @@ services:
     #   - "pki-test.comp-consulting.eu:host-gateway"
     environment:
       - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
+      - CCOCR_HOST_MOUNTS=${CCOCR_HOST_MOUNTS:-}
       # TSA credentials can also be set here; otherwise enter them in the admin console (Trust services).
       # - CCOCR_TSA_USER=...
       # - CCOCR_TSA_PASSWORD=...
@@ -30,5 +31,10 @@ services:
     volumes:
       - ${CCOCR_DATA:-./data}:/data
       # - ./my-config:/app/config:ro      # own watch.yaml + profiles to import on first start
+      # More scan folders: add them here AND to CCOCR_HOST_MOUNTS (in .env), e.g.
+      # - C:\OCR_Work_SDS:/mnt/sds
     environment:
       - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
+      # Host folder = container path, separated by ';'. Lets operators enter folders as C:\... in the console.
+      # Example .env line:  CCOCR_HOST_MOUNTS=C:\cc-ocr\data=/data;C:\OCR_Work_SDS=/mnt/sds
+      - CCOCR_HOST_MOUNTS=${CCOCR_HOST_MOUNTS:-}

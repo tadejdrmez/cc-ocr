@@ -31,7 +31,7 @@ from .. import __version__
 from ..naming import NamingError, build_name
 from ..profile import ProfileError
 from ..rules import PageContext, RuleError, compile_rule
-from . import forms
+from . import forms, mounts
 from .i18n import LANGUAGES, translator
 from .security import check_password, hash_password, new_token, password_problem, temp_password
 from .store import FOLDER_DEFAULTS, ROLES, Store, now_iso, profile_yaml
@@ -620,11 +620,14 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
     @app.get("/folders", response_class=HTMLResponse)
     def folders_page(request: Request):  # noqa: ANN202
         need(request, "admin")
-        return render(request, "folders.html", {"folders": [{**f, "status": folder_status(f)} for f in store.folders()],
+        return render(request, "folders.html", {"folders": [{**f, "status": folder_status(f), "host_in": mounts.to_host(f["in"]),
+                                                             "host_out": mounts.to_host(f["out"])} for f in store.folders()],
                                                 "watch": store.get("watch")})
 
     def folder_form_ctx(f: dict[str, Any], error: str | None = None) -> dict[str, Any]:
         return {"f": f, "profiles": [n for n in store.profile_names() if store.published(n)], "error": error,
+                "mounts": mounts.configured(), "container_mounts": mounts.container_mounts(),
+                "host_in": mounts.to_host(f.get("in") or ""), "host_out": mounts.to_host(f.get("out") or ""),
                 "watch": store.get("watch"), "types": [".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png"],
                 "share_user_set": bool(store.secrets().get(f"share_{f.get('id')}_password"))}
 
@@ -660,6 +663,8 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
             "file_types": [t for t in form.getlist("file_types")], "max_mb": float(form.get("max_mb") or 0),
         }
         try:
+            data["in"] = mounts.to_container(data["in"]) if data["in"] else data["in"]
+            data["out"] = mounts.to_container(data["out"]) if data["out"] else data["out"]
             data["stable_polls"] = opt_int(form.get("stable_polls"))
             data["retries"] = opt_int(form.get("retries"))
             if not data["name"]:

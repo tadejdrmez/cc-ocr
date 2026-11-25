@@ -85,6 +85,13 @@ it with `CCOCR_ADMIN_PORT`).
    one YAML per published profile. The watcher reloads it within one poll
    interval; no restart is needed. Do not edit those files by hand.
 
+Folders can be entered in the console as they are named on the host
+(`C:\OCR_Work_SDS\in`) when the deployment declares its bind mounts in
+`CCOCR_HOST_MOUNTS` (host=container pairs separated by `;`, e.g. in `.env`:
+`CCOCR_HOST_MOUNTS=C:\cc-ocr\data=/data;C:\OCR_Work_SDS=/mnt/sds`). A folder
+outside the shared ones is rejected with a hint; to add one, add it to the
+`volumes` of both services and to `CCOCR_HOST_MOUNTS`, then `docker compose up -d`.
+
 What the console covers: profiles (draft, publish, history with compare and
 restore, YAML import/export), split rules with a live tester, folders (input
 and output settings per folder), separator sheets, document types, trust

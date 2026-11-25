@@ -337,7 +337,7 @@ class Store:
     def save_folder(self, data: dict[str, Any], fid: int | None = None) -> int:
         clean = {k: data.get(k, FOLDER_DEFAULTS[k]) for k in FOLDER_DEFAULTS}
         if not str(clean["in"]).startswith("/") or not str(clean["out"]).startswith("/"):
-            raise ValueError("input and output folders must be absolute paths inside the container, e.g. /data/in")
+            raise ValueError("enter the input and output folders, e.g. C:\\Scan\\in or /data/in")
         if clean["in"] == clean["out"]:
             raise ValueError("input and output must be different folders")
         if clean["duplicate"] not in {"error", "skip", "reprocess"}:

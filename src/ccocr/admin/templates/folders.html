@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card"><div class="hd">{{ _("Watched folders") }}<span class="sp"></span><a class="btn pri" href="/folders/new">+ {{ _("Add folder") }}</a></div>
 <div class="scroll"><table class="t"><tr><th>{{ _("Name") }}</th><th>{{ _("Input") }}</th><th>{{ _("Output") }}</th><th>{{ _("Profile") }}</th><th>{{ _("Access") }}</th><th>{{ _("Status") }}</th></tr>
-{% for f in folders %}<tr><td><a href="/folders/{{ f.id }}"><b>{{ f.name }}</b></a></td><td class="mono">{{ f['in'] }}</td><td class="mono">{{ f.out }}</td><td>{{ f.profile or '–' }}</td>
+{% for f in folders %}<tr><td><a href="/folders/{{ f.id }}"><b>{{ f.name }}</b></a></td><td class="mono">{{ f.host_in or f['in'] }}</td><td class="mono">{{ f.host_out or f.out }}</td><td>{{ f.profile or '–' }}</td>
 <td>{{ {'local':_('Local'),'smb':_('SMB share'),'smb-tunnel':_('SMB via tunnel'),'sync-agent':_('Sync agent')}.get(f.access, f.access) }}</td>
 <td>{% if f.paused %}<span class="dot warn"></span>{{ _("paused") }}{% elif f.status.ok %}<span class="dot ok"></span>{{ _("online") }}{% else %}<span class="dot bad"></span>{{ f.status.msg }}{% endif %}</td></tr>
 {% else %}<tr><td colspan="6" class="muted">{{ _("No folders yet.") }}</td></tr>{% endfor %}</table></div></div>
