@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CC OCR hash manifest, version 1. The RFC 3161 token (.tsr) is computed over this file's bytes. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:m="urn:cc:ocr:manifest:1"
+           targetNamespace="urn:cc:ocr:manifest:1"
+           elementFormDefault="qualified">
+  <xs:element name="manifest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="entry" minOccurs="1" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:attribute name="name" type="xs:string" use="required"/>
+            <xs:attribute name="role" use="required">
+              <xs:simpleType><xs:restriction base="xs:string">
+                <xs:enumeration value="document"/><xs:enumeration value="metadata"/>
+              </xs:restriction></xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="sha256" use="required">
+              <xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="[0-9a-f]{64}"/></xs:restriction></xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="size" type="xs:nonNegativeInteger" use="required"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+      <xs:attribute name="jobId" type="xs:string" use="required"/>
+      <xs:attribute name="profile" type="xs:string" use="required"/>
+      <xs:attribute name="created" type="xs:dateTime" use="required"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

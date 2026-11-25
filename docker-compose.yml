@@ -1,0 +1,17 @@
+# Runs on a Windows PC with Docker Desktop or on a Linux server (e.g. the CC_archive server).
+#   docker compose up -d
+# Scans dropped into ./data/in come out in ./data/out.
+services:
+  ccocr:
+    image: cc-ocr:0.1.0
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ${CCOCR_DATA:-./data}:/data
+      # - ./my-config:/app/config:ro      # own watch.yaml
+      # - ./my-profiles:/app/profiles:ro  # own profiles
+    environment:
+      - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
+      # For the cc-ca TimeStamp service set timestamp.mode: http and url in the profile, plus:
+      # - CCOCR_TSA_USER=...
+      # - CCOCR_TSA_PASSWORD=...

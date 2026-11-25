@@ -1,0 +1,45 @@
+# CC OCR profile (export/import format; edited in the admin UI in later increments)
+profile: incoming-mixed
+document_type: document
+classification: ""
+document_types: [invoice, contract, document]
+
+optimiser:
+  despeckle: true
+  contrast: true
+  binarise: sauvola        # sauvola | otsu | none
+  deskew: true
+  crop: true
+  dpi: 300
+  min_dpi: 200
+  blank_threshold: 0.004   # share of ink on the inner page area
+  pdf_image: original      # original (recommended, D2) | optimised
+
+ocr:
+  osd: true                # per-page orientation and script detection
+  default: [slv, eng]
+  latin: [slv, hrv, srp_latn, eng]
+  cyrillic: [srp, srp_latn]
+  min_confidence: 60
+  output: pdfa-2
+
+split:
+  proposals: [qr-separator, blank-page, text-rule]
+  zone: 0.25               # top/bottom zone height for rules
+  rules:
+    - name: invoice-header
+      expr: 'top matches /(RAČUN|INVOICE)\s+(št|no)\.?/i AND NOT top contains "nadaljevanje"'
+      doctype: invoice             # optional: type given to documents starting here
+  auto_accept: true        # proof of concept: no operator screen yet
+  drop_blank_pages: true
+
+output:
+  metadata: [sidecar-xml, filename]
+  naming: "{doctype}_{batch}_{seq}"
+  max_length: 120
+  on_collision: suffix
+
+timestamp:
+  mode: openssl-local      # openssl-local (test TSA) | http (cc-ca TimeStamp service) | none
+  # url: https://ts.example/tsa
+  qualified: false

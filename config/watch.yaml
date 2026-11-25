@@ -1,0 +1,13 @@
+# CC OCR hot-folder configuration (paths inside the container).
+# Mount the scan folder (e.g. C:\Scan on Windows) at /data.
+root: /data
+remote: false          # true for folders reached over a tunnel: polls every 30 s, 4 stable polls
+# poll_interval: 10
+# stable_polls: 3
+marker_suffix: .done   # scanner writes batch.pdf, then batch.pdf.done (optional)
+require_marker: false
+retries: 3
+folders:
+  - in: /data/in
+    out: /data/out
+    profile: /app/profiles/example.yaml
