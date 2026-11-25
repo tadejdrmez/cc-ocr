@@ -50,7 +50,7 @@ SECTIONS: list[tuple[str, str, list[Field]]] = [
     ("optimiser", "Optimiser", [
         Field("optimiser.despeckle", "Despeckle", "bool", "Removes isolated dots and scanner noise."),
         Field("optimiser.contrast", "Auto contrast", "bool", "Normalises faint or dark scans."),
-        Field("optimiser.binarise", "Binarisation", "select", "Black/white conversion used for OCR only.",
+        Field("optimiser.binarise", "Binarisation", "select", "Black/white conversion used for OCR, and for the page image when Black and white is chosen under Output.",
               [("sauvola", "Sauvola (adaptive, recommended)"), ("otsu", "Otsu (global)"), ("none", "None")]),
         Field("optimiser.deskew", "Deskew", "bool"),
         Field("optimiser.max_deskew_deg", "Maximum deskew angle (°)", "float", "", min=0, max=45),
@@ -59,9 +59,6 @@ SECTIONS: list[tuple[str, str, list[Field]]] = [
         Field("optimiser.min_dpi", "Minimum resolution (dpi)", "int", "Pages below this are flagged for review.", min=72, max=600),
         Field("optimiser.blank_threshold", "Blank page ink threshold (%)", "percent",
               "A page with less ink than this on its inner area counts as blank.", min=0, max=5),
-        Field("optimiser.pdf_image", "Image in the output PDF/A", "select",
-              "The original scan is the recommended default (D2). The optimised image gives smaller files.",
-              [("original", "Original scan"), ("optimised", "Optimised image")]),
     ]),
     ("ocr", "OCR & languages", [
         Field("ocr.osd", "Detect orientation and script on every page", "bool",
@@ -90,6 +87,12 @@ SECTIONS: list[tuple[str, str, list[Field]]] = [
         Field("output.package", "Output package", "select", "",
               [("single", "One PDF/A-3 per document (XML embedded, PDF timestamp)"),
                ("sidecars", "PDF/A-2 with .xml, .manifest.xml and .tsr next to it")]),
+        Field("optimiser.pdf_image", "Page image (colour or black and white)", "select",
+              "Original scan keeps colour and grey exactly as scanned (recommended for archiving). "
+              "Black and white stores the cleaned, straightened black-and-white page that OCR reads: "
+              "typically 5 to 10 times smaller, but stamps, signatures, logos and photos lose their colour "
+              "and faint marks can disappear. The archived scan always keeps full colour.",
+              [("original", "Original scan (colour)"), ("optimised", "Black and white (smallest file)")]),
         Field("output.size", "File size", "select",
               "Original keeps the scan images exactly as scanned. Compact makes the smallest file: colour and grey images "
               "are re-compressed; black-and-white pages and the text layer stay lossless.",
