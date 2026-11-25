@@ -12,6 +12,7 @@ import difflib
 import io
 import json
 import os
+import re
 import shutil
 import sqlite3
 import time
@@ -143,7 +144,57 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
         def count(d: str, pattern: str = "*") -> int:
             p = root / d
             return sum(1 for x in p.glob(pattern) if x.is_file() and not x.name.endswith(".error.txt")) if p.exists() else 0
-        return {"review": count("review"), "error": count("error"), "processing": count("processing")}
+        return {"review": len([j for j in review_jobs() if j["state"] in ("ready", "legacy")]),
+                "error": count("error"), "processing": count("processing")}
+
+    # -- operator separation (review/<job>/, written by the watcher; see ccocr/review.py) --
+    JOB_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
+
+    def review_dir() -> Path:
+        return store.data / "review"
+
+    def job_state(d: Path) -> tuple[str, dict[str, Any]]:
+        try:
+            plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return "analysing", {}
+        if (d / "decision.json").exists() or (d / "decision.taken.json").exists():
+            return "released", plan
+        return plan.get("status", "analysing"), plan
+
+    def review_jobs() -> list[dict[str, Any]]:
+        rd = review_dir()
+        if not rd.is_dir():
+            return []
+        out = []
+        for d in sorted(rd.iterdir()):
+            at = datetime.fromtimestamp(d.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            if d.is_file():  # held by version 0.2.0 before the separation screen existed
+                if not d.name.endswith(".tmp"):
+                    out.append({"job": d.name.split("__", 1)[0], "name": d.name.split("__", 1)[-1], "state": "legacy", "at": at})
+                continue
+            state, plan = job_state(d)
+            out.append({"job": d.name, "name": plan.get("batch_name", "?"), "state": state, "at": at,
+                        "profile": (plan.get("profile") or {}).get("name", ""), "folder": plan.get("folder", ""),
+                        "pages": len(plan.get("pages") or []), "documents": len(plan.get("documents") or []),
+                        "flags": sum(1 for pg in plan.get("pages") or [] if pg.get("flags")), "error": plan.get("error", "")})
+        return out
+
+    def can_separate(u: sqlite3.Row) -> bool:
+        r = roles_of(u)
+        return "operator" in r or ("admin" in r and not store.get("system")["separation_of_duties"])
+
+    def need_separator(request: Request) -> sqlite3.Row:
+        u = need(request)
+        if not can_separate(u):
+            raise Redirect("/review?role=1")
+        return u
+
+    def job_dir_or_none(job: str) -> Path | None:
+        if not JOB_RE.match(job):
+            return None
+        d = review_dir() / job
+        return d if d.is_dir() else None
 
     def doctype_options() -> list[tuple[str, str]]:
         return [(d["code"], f"{d['label']} ({d['code']})") for d in store.get("doctypes")]
@@ -316,6 +367,116 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
             "watch_cfg": (store.config_dir / "watch.yaml").exists(),
         })
 
+    @app.get("/review", response_class=HTMLResponse)
+    def review_list(request: Request):  # noqa: ANN202
+        u = need(request)
+        ctx = {"jobs": review_jobs(), "can_separate": can_separate(u)}
+        if request.query_params.get("role"):
+            ctx["role_note"] = True
+        return render(request, "review_list.html", ctx)
+
+    @app.get("/review/{job}", response_class=HTMLResponse)
+    def review_job(request: Request, job: str):  # noqa: ANN202
+        u = need_separator(request)
+        d = job_dir_or_none(job)
+        if d is None:
+            flash(request, "That batch is no longer waiting for separation.", "warn")
+            return RedirectResponse("/review", 303)
+        state, plan = job_state(d)
+        if state != "ready":
+            flash(request, {"released": "That batch has already been released or rejected.",
+                            "failed": "That batch could not be analysed."}.get(state, "That batch is still being analysed."), "warn")
+            return RedirectResponse("/review", 303)
+        known = {c for c, _ in doctype_options()}
+        extra = [(c, c) for c in plan.get("document_types") or [] if c not in known]
+        return render(request, "review.html", {
+            "job": job, "plan": plan, "doctypes": doctype_options() + extra,
+            "classifications": store.get("classifications"), "login": u["login"],
+        })
+
+    @app.get("/review/{job}/page/{n}.jpg")
+    def review_thumb(request: Request, job: str, n: int, size: str = "s"):  # noqa: ANN202
+        need_separator(request)
+        d = job_dir_or_none(job)
+        p = d / "thumbs" / f"p{n:04d}{'-l' if size == 'l' else ''}.jpg" if d else None
+        if p is None or not p.is_file():
+            return Response(status_code=404)
+        return Response(p.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+    def _write_decision(d: Path, decision: dict[str, Any]) -> bool:
+        target = d / "decision.json"
+        if target.exists() or (d / "decision.taken.json").exists():
+            return False
+        tmp = d / "decision.json.tmp"
+        tmp.write_text(json.dumps(decision, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, target)
+        return True
+
+    @app.post("/review/{job}/confirm")
+    async def review_confirm(request: Request, job: str):  # noqa: ANN202
+        u = need_separator(request)
+        form = await form_data(request)
+        d = job_dir_or_none(job)
+        if d is None or job_state(d)[0] != "ready":
+            flash(request, "That batch is no longer waiting for separation.", "warn")
+            return RedirectResponse("/review", 303)
+        plan = job_state(d)[1]
+        n = len(plan.get("pages") or [])
+        try:
+            layout = json.loads(str(form.get("layout", "")))
+            docs, seen = [], set()
+            for doc in layout.get("documents") or []:
+                pages = [int(x) for x in doc.get("pages") or []]
+                if not pages:
+                    continue
+                if any(x < 0 or x >= n or x in seen for x in pages) or pages != sorted(pages):
+                    raise ValueError("each page may be in one document only, in batch order")
+                seen.update(pages)
+                docs.append({"pages": pages, "doctype": str(doc.get("doctype") or "")[:60],
+                             "classification": str(doc.get("classification") or "")[:60]})
+            if not docs:
+                raise ValueError("keep at least one page")
+            rotate = {str(int(k)): int(v) % 360 for k, v in (layout.get("rotate") or {}).items()
+                      if 0 <= int(k) < n and int(v) % 90 == 0 and int(v) % 360}
+        except (ValueError, TypeError, AttributeError) as e:
+            flash(request, f"The layout could not be read: {e}", "bad")
+            return RedirectResponse(f"/review/{job}", 303)
+        removed = sorted(set(range(n)) - seen)
+        login, role = actor(u)
+        decision = {"action": "confirm", "by": login, "role": role, "at": now_iso(), "documents": docs,
+                    "rotate": rotate, "removed": removed, "note": str(form.get("note", ""))[:500],
+                    "proposed_documents": len(plan.get("documents") or [])}
+        if not _write_decision(d, decision):
+            flash(request, "Someone else has already released this batch.", "warn")
+            return RedirectResponse("/review", 303)
+        store.audit(login, role, "Confirm separation", f"batch {plan.get('batch_name')} (job {job})",
+                    old={"documents": [x["pages"] for x in plan.get("documents") or []]},
+                    new={"documents": [x["pages"] for x in docs], "removed": removed, "rotate": rotate},
+                    reason=decision["note"])
+        flash(request, f"{plan.get('batch_name')}: {len(docs)} document(s) released. The watcher writes them on its next poll.")
+        return RedirectResponse("/review", 303)
+
+    @app.post("/review/{job}/reject")
+    async def review_reject(request: Request, job: str):  # noqa: ANN202
+        u = need_separator(request)
+        form = await form_data(request)
+        d = job_dir_or_none(job)
+        reason = str(form.get("reason", "")).strip()[:500]
+        if d is None or job_state(d)[0] not in ("ready", "failed"):
+            flash(request, "That batch is no longer waiting for separation.", "warn")
+            return RedirectResponse("/review", 303)
+        if not reason:
+            flash(request, "Write why the batch is rejected.", "bad")
+            return RedirectResponse(f"/review/{job}" if job_state(d)[0] == "ready" else "/review", 303)
+        plan = job_state(d)[1]
+        login, role = actor(u)
+        if not _write_decision(d, {"action": "reject", "by": login, "role": role, "at": now_iso(), "reason": reason}):
+            flash(request, "Someone else has already released this batch.", "warn")
+            return RedirectResponse("/review", 303)
+        store.audit(login, role, "Reject batch", f"batch {plan.get('batch_name')} (job {job})", reason=reason)
+        flash(request, f"{plan.get('batch_name')} rejected. It moves to the error folder on the next poll.")
+        return RedirectResponse("/review", 303)
+
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(request: Request):  # noqa: ANN202
         need(request)
@@ -325,12 +486,7 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
             for p in sorted(edir.glob("*.error.txt"), key=lambda x: x.stat().st_mtime, reverse=True)[:50]:
                 errors.append({"name": p.name[: -len(".error.txt")], "text": p.read_text(encoding="utf-8", errors="replace")[:4000],
                                "at": datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")})
-        review = []
-        rdir = store.data / "review"
-        if rdir.is_dir():
-            review = [{"name": p.name.split("__", 1)[-1], "job": p.name.split("__", 1)[0],
-                       "at": datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")}
-                      for p in sorted(rdir.iterdir()) if p.is_file()]
+        review = [j for j in review_jobs() if j["state"] in ("ready", "legacy")]
         return render(request, "jobs.html", {"reports": [
             {**r, "at": datetime.fromtimestamp(r["mtime"]).strftime("%Y-%m-%d %H:%M")} for r in reports()],
             "errors": errors, "review": review, "batches": recent_batches(100)})

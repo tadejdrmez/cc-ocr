@@ -13,8 +13,10 @@
   {% set is_admin = 'admin' in roles %}
   <div class="sec">{{ _("Operate") }}</div>
   <a class="i {{ 'on' if path == '/' }}" href="/">{{ _("Dashboard") }}</a>
+  <a class="i {{ 'on' if path.startswith('/review') }}" href="/review">{{ _("Separation") }}
+    {% if nav_counts.review %}<b>{{ nav_counts.review }}</b>{% endif %}</a>
   <a class="i {{ 'on' if path.startswith('/jobs') }}" href="/jobs">{{ _("Jobs & logs") }}
-    {% if nav_counts.error %}<b class="bad">{{ nav_counts.error }}</b>{% elif nav_counts.review %}<b>{{ nav_counts.review }}</b>{% endif %}</a>
+    {% if nav_counts.error %}<b class="bad">{{ nav_counts.error }}</b>{% endif %}</a>
   {% if is_admin or 'operator' in roles %}<a class="i {{ 'on' if path.startswith('/sheets') }}" href="/sheets">{{ _("Separator sheets") }}</a>{% endif %}
   {% if is_admin %}
   <div class="sec">{{ _("Configure") }}</div>

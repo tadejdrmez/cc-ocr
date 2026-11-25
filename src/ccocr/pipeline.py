@@ -1,10 +1,10 @@
 """Batch pipeline: import -> optimise -> split proposals -> OCR -> PDF/A -> output.
 
-Proof-of-concept order (spec chapter 8, steps 1-5, 9, 12): every page is
-OCR'd once, before splitting, so that text rules can see its text; the same
-per-page text layer is reused when documents are assembled. Steps that need
-an operator (4 manual separation, 7 validation) are auto-accepted and marked
-as such in the job report until the web UI exists.
+Order (spec chapter 8, steps 1-5, 9, 12): every page is OCR'd once, before
+splitting, so that text rules can see its text; the same per-page text layer
+is reused when documents are assembled. With auto-accept off, the watcher
+stops after the analysis (see ``review.py``), the operator confirms the split
+in the console, and the batch is finished with the operator's decision.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from .pades import add_document_timestamp, embed_files, verify_pdf
 from .output import SidecarInput, build_manifest, build_sidecar, check_manifest, sha256_bytes, write_atomic
 from .profile import Profile
 from .rules import PageContext
-from .separators import PageFacts, parse_payload, plan_split, read_barcodes
+from .separators import DocumentPlan, PageFacts, Proposal, SplitPlan, parse_payload, plan_split, read_barcodes
 from .timestamp import TimestampError, timestamp, verify
 
 Log = Callable[[str], None]
@@ -64,7 +64,9 @@ def _page_ranges(pages: list[int]) -> str:
     return ",".join(out)
 
 
-def _analyse_page(sp: SourcePage, profile: Profile, n_pages: int) -> PageResult:
+def _analyse_page(sp: SourcePage, profile: Profile, n_pages: int, force_rotation: int | None = None) -> PageResult:
+    """Optimise, read codes and OCR one page. ``force_rotation`` (degrees clockwise) replaces
+    the OSD orientation, for pages the operator turned on the separation screen."""
     opt_cfg, ocr_cfg, split_cfg = profile["optimiser"], profile["ocr"], profile["split"]
     opt = optimise(sp.image, sp.dpi, opt_cfg)
     facts = PageFacts(index=sp.index, is_blank=opt.is_blank, ink_ratio=opt.ink_ratio)
@@ -82,7 +84,15 @@ def _analyse_page(sp: SourcePage, profile: Profile, n_pages: int) -> PageResult:
         return pr  # separator sheets and blank pages are not OCR'd
 
     ocr_img = opt.ocr_image
-    if ocr_cfg.get("osd", True):
+    if force_rotation is not None:
+        pr.rotation = force_rotation % 360
+        if pr.rotation:
+            ocr_img = rotate_upright(ocr_img, pr.rotation)
+            pr.pdf_image = rotate_upright(opt.pdf_image, pr.rotation)
+        pr.notes.append(f"rotated {pr.rotation} deg clockwise by the operator")
+        if ocr_cfg.get("osd", True):
+            pr.osd = detect_osd(ocr_img, opt.ocr_dpi)  # script only; the page is upright now
+    elif ocr_cfg.get("osd", True):
         pr.osd = detect_osd(ocr_img, opt.ocr_dpi)
         if pr.osd and pr.osd.rotate and pr.osd.orientation_conf >= 1.5:
             pr.rotation = pr.osd.rotate
@@ -101,6 +111,58 @@ def _analyse_page(sp: SourcePage, profile: Profile, n_pages: int) -> PageResult:
     return pr
 
 
+def analyse_batch(
+    batch: Path, profile: Profile, *, workers: int | None = None, job_id: str = "", log: Log = lambda m: None,
+    pages: list[SourcePage] | None = None,
+) -> list[PageResult]:
+    """Steps 1-3: load, optimise, read codes and OCR every page (no output yet)."""
+    if pages is None:
+        log(f"[{job_id}] {batch.name}: loading")
+        pages = load_batch(batch)
+    log(f"[{job_id}] {len(pages)} page(s); optimising and reading")
+    workers = workers or max(1, min(len(pages), os.cpu_count() or 2))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(lambda sp: _analyse_page(sp, profile, len(pages)), pages))
+
+
+def split_plan(results: list[PageResult], profile: Profile, *, auto: bool) -> SplitPlan:
+    known = {str(d).lower() for d in profile.raw.get("document_types", []) or []} or None
+    return plan_split([r.facts for r in results], {**profile["split"], "auto_accept": auto}, profile.rules, known)
+
+
+def apply_decision(plan: SplitPlan, decision: dict[str, Any], n_pages: int) -> SplitPlan:
+    """Replace the proposed documents with the operator's (spec 3.2).
+
+    ``decision["documents"]`` is a list of ``{"pages": [0-based...], "doctype", "classification"}``;
+    pages in no document are removed. Proposals are marked accepted when the operator kept a
+    split at that place and rejected otherwise.
+    """
+    by = str(decision.get("by") or "operator")
+    docs: list[DocumentPlan] = []
+    seen: set[int] = set()
+    old_by_page = {p: d for d in plan.documents for p in d.pages}
+    for d in decision.get("documents") or []:
+        pages = [int(p) for p in d.get("pages") or []]
+        if not pages:
+            continue
+        if any(p < 0 or p >= n_pages or p in seen for p in pages):
+            raise ValueError("operator decision lists a page twice or a page outside the batch")
+        seen.update(pages)
+        old = old_by_page.get(pages[0])
+        meta = dict(old.metadata) if old else {}
+        for k in ("doctype", "classification"):
+            if d.get(k):
+                meta[k] = str(d[k])
+        flags = sorted({f for p in pages if (o := old_by_page.get(p)) for f in o.review_flags})
+        docs.append(DocumentPlan(pages=pages, metadata=meta, review_flags=flags, started_by=f"operator {by}"))
+    if not docs:
+        raise ValueError("operator decision has no documents")
+    starts = {d.pages[0] for d in docs[1:]}
+    proposals = [Proposal(p.before_page, p.source, p.reason, p.before_page in starts, by) for p in plan.proposals]
+    removed = [{"page": p + 1, "why": f"removed by {by}"} for p in range(n_pages) if p not in seen]
+    return SplitPlan(proposals=proposals, documents=docs, removed_pages=removed)
+
+
 def process_batch(
     batch: Path,
     profile: Profile,
@@ -111,24 +173,24 @@ def process_batch(
     workers: int | None = None,
     confirmed_by: str | None = None,
     reports_dir: Path | None = None,
+    results: list[PageResult] | None = None,
+    decision: dict[str, Any] | None = None,
     log: Log = lambda m: None,
 ) -> dict[str, Any]:
+    """Process one batch. ``results`` (from :func:`analyse_batch`) skips the analysis;
+    ``decision`` (from the operator separation screen) replaces the automatic split."""
     started = datetime.now(timezone.utc).astimezone()
     job_id = job_id or started.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     out_dir.mkdir(parents=True, exist_ok=True)
     batch_name = batch_name or batch.name
     batch_stem = Path(batch_name).stem
     batch_sha = sha256_file(batch)
-    log(f"[{job_id}] {batch_name}: loading")
-    pages = load_batch(batch)
-    log(f"[{job_id}] {len(pages)} page(s); optimising and reading")
+    if results is None:
+        results = analyse_batch(batch, profile, workers=workers, job_id=job_id, log=log)
 
-    workers = workers or max(1, min(len(pages), os.cpu_count() or 2))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda sp: _analyse_page(sp, profile, len(pages)), pages))
-
-    known = {str(d).lower() for d in profile.raw.get("document_types", []) or []} or None
-    plan = plan_split([r.facts for r in results], {**profile["split"], "auto_accept": confirmed_by is None}, profile.rules, known)
+    plan = split_plan(results, profile, auto=confirmed_by is None)
+    if decision is not None:
+        plan = apply_decision(plan, decision, len(results))
     log(f"[{job_id}] {len(plan.documents)} document(s) from {len(plan.proposals)} split proposal(s)")
 
     versions = {
@@ -326,7 +388,7 @@ def process_batch(
 
     report = {
         "job_id": job_id,
-        "batch": {"file": batch_name, "sha256": batch_sha, "pages": len(pages)},
+        "batch": {"file": batch_name, "sha256": batch_sha, "pages": len(results)},
         "profile": profile.name,
         "profile_version": profile.raw.get("config_version"),  # set when the admin console published it
         "versions": versions,
@@ -355,6 +417,7 @@ def process_batch(
             "proposals": [asdict(p) for p in plan.proposals],
             "removed_pages": plan.removed_pages,
             "auto_accepted": auto,
+            "operator": ({k: v for k, v in decision.items() if k != "documents"} if decision else None),
         },
         "documents": documents_report,
         "warnings": warnings,

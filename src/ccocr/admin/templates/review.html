@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ plan.batch_name }} · {{ _("Separation") }}{% endblock %}{% block heading %}{{ _("Separate") }} <span class="mono">{{ plan.batch_name }}</span>{% endblock %}
+{% block content %}
+<div class="banner" style="display:flex;gap:14px;flex-wrap:wrap">
+  <span>{{ _("Profile") }} <b>{{ plan.profile.name }}</b></span><span>{{ _("Folder") }} <b>{{ plan.folder }}</b></span>
+  <span>{{ plan.pages|length }} {{ _("pages") }}</span><span>{{ _("Held") }} {{ plan.held_at|replace("T", " ") }}</span>
+  <span class="muted">{{ _("Click between pages to start or join a document. Click a page to see it large with its OCR text.") }}</span>
+</div>
+<div class="sep" id="sep" data-job="{{ job }}">
+  <div class="sep-strip card"><div class="hd">{{ _("Documents") }} <span class="pill" id="sum"></span><span class="sp"></span><span class="muted small">{{ _("○ proposed split · click the line between two pages to split or join · ← → pages, R turn, X leave out") }}</span></div><div class="bd" id="strip"></div></div>
+  <div class="sep-side">
+    <div class="card"><div class="hd"><span id="pv-title">{{ _("Page") }}</span><span class="sp"></span>
+      <button type="button" class="btn sm" id="pv-rot" title="{{ _('Turn 90° clockwise') }}">↻ {{ _("Turn") }}</button>
+      <button type="button" class="btn sm" id="pv-rm"></button></div>
+      <div class="bd"><div class="pv-img"><img id="pv-img" alt=""></div><div id="pv-info" class="small"></div>
+      <details><summary class="small">{{ _("OCR text") }}</summary><pre class="code" id="pv-text"></pre></details></div></div>
+    <form class="card" method="post" action="/review/{{ job }}/confirm" id="confirm-form">
+      <div class="hd">{{ _("Release") }}</div>
+      <div class="bd col"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="layout" id="layout">
+        <div id="changes" class="small"></div>
+        <div class="f"><label for="note">{{ _("Note (optional, goes into the audit log)") }}</label><input id="note" name="note" maxlength="500"></div>
+        <button class="btn pri">{{ _("Confirm split and release") }}</button>
+        <div class="muted small">{{ _("Confirmed as") }} {{ login }}. {{ _("The documents are written and timestamped on the watcher's next poll.") }}</div></div>
+    </form>
+    <form class="card" method="post" action="/review/{{ job }}/reject">
+      <div class="hd">{{ _("Reject batch") }}</div>
+      <div class="bd col"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="f"><label for="reason">{{ _("Reason") }}</label><input id="reason" name="reason" required maxlength="500" placeholder="{{ _('e.g. pages missing, rescan needed') }}"></div>
+        <button class="btn danger" data-confirm="{{ _('Click again to reject') }}">{{ _("Reject, move to errors") }}</button></div>
+    </form>
+  </div>
+</div>
+<datalist id="cls-list">{% for c in classifications %}<option value="{{ c.code }}">{{ c.label }}</option>{% endfor %}</datalist>
+<script type="application/json" id="plan-data">{{ {"pages": plan.pages, "proposals": plan.proposals, "documents": plan.documents, "doctypes": doctypes}|tojson }}</script>
+{% endblock %}

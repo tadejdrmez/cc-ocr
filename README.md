@@ -4,10 +4,11 @@ On-premises importer for scanned documents. Drop a scanned batch (PDF or
 multi-page TIFF) into a folder; CC OCR splits it into documents, makes them
 searchable and writes timestamped PDF/A files with metadata.
 
-This is **increment 0**, the pipeline proof of concept from the specification
-(CC_OCR_Specification v0.4, chapter 10.3). It runs unattended. The operator
-screens (manual separation, validation) come in the next increments, so split
-proposals and documents are **auto-accepted** for now, and every output says so.
+This started as **increment 0**, the pipeline proof of concept from the
+specification (CC_OCR_Specification v0.4, chapter 10.3), and now includes the
+admin console and the operator separation screen. Profiles with automatic
+acceptance on run unattended and every output says "auto-accepted"; profiles
+with it off wait for an operator to confirm the split.
 
 ## What it does
 
@@ -101,9 +102,28 @@ Administrator, Operator and Reviewer, system settings and the append-only audit
 log with CSV export. LDAP / Active Directory follows in version 2.
 
 Automatic acceptance of split proposals is **off by default** for new
-profiles. Batches of such a profile wait in `/data/review/` until the operator
-separation screen (next increment) confirms them. Switching it on needs a
-written reason and is audited. The shipped example profiles have it on.
+profiles. Switching it on needs a written reason and is audited. The shipped
+example profiles have it on.
+
+### Operator separation screen
+
+A batch from a profile with auto-accept off is analysed once (optimise, codes,
+OCR) and parked in `/data/review/<job>/` with page images and the proposed
+documents. Nothing reaches the output folder yet. Under **Separation** an
+Operator (or an Administrator when separation of duties is off):
+
+- sees every page with its proposed document boundaries, separator sheets,
+  blank pages and low-confidence flags, and the OCR text of each page;
+- splits or joins documents by clicking between two pages, leaves pages out,
+  turns pages that are upside down or sideways (those pages are read again);
+- sets the document type and classification per document;
+- confirms and releases the batch, or rejects it with a reason.
+
+The console writes `decision.json` into the job folder; the watcher applies
+it on its next poll, reusing the OCR it already did, and the job report and
+metadata say "confirmed by <login>". A rejected batch moves to `error/` with
+the reason. Both are in the audit log. Reordering pages and correcting OCR
+text are not part of this version.
 
 Passwords for the TimeStamp service entered in the console are stored in
 `/data/.ccocr/secrets.json` (mode 0600); `CCOCR_TSA_USER` / `CCOCR_TSA_PASSWORD`
@@ -189,9 +209,9 @@ ccocr process demo.tif --profile profiles/example.yaml --out out --tsa-dir ./tsa
 
 ## Known limits of this increment
 
-- No operator screens yet: profiles with auto-accept off hold batches in
-  `review/`; profiles with auto-accept on deliver directly (marked
-  "auto-accepted" in the report and XML).
+- The separation screen keeps the batch's page order (no reordering) and
+  does not edit OCR text. Field-level validation (spec step 7) beyond document
+  type and classification comes later.
 - The console UI is English; the Slovenian and Serbian catalogues are prepared
   but not translated yet.
 - With `pdf_image: original`, skew is detected and reported but not corrected,

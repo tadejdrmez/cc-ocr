@@ -118,6 +118,51 @@ def profile_yaml(data: dict[str, Any]) -> str:
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=None)
 
 
+class _Result:
+    """A fully fetched cursor, so no other thread can disturb it."""
+
+    def __init__(self, rows: list[Any], lastrowid: int | None, rowcount: int):
+        self._rows, self.lastrowid, self.rowcount = rows, lastrowid, rowcount
+
+    def fetchone(self) -> Any:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[Any]:
+        return self._rows
+
+    def __iter__(self):  # noqa: ANN204
+        return iter(self._rows)
+
+
+class _LockedDB:
+    """One SQLite connection shared by the server's worker threads.
+
+    Every statement runs under the store's lock and is fetched completely before
+    the lock is released. Without this, parallel requests (a page and its images)
+    interleave on the shared connection and a query can come back empty.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, lock: threading.RLock):
+        self._conn, self._lock = conn, lock
+
+    def execute(self, sql: str, args: Any = ()) -> _Result:
+        with self._lock:
+            cur = self._conn.execute(sql, args)
+            return _Result(cur.fetchall(), cur.lastrowid, cur.rowcount)
+
+    def executescript(self, sql: str) -> None:
+        with self._lock:
+            self._conn.executescript(sql)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+
 class Store:
     def __init__(self, data_dir: Path):
         self.data = data_dir
@@ -126,8 +171,9 @@ class Store:
         self.config_dir = self.state / "config"
         self.secrets_file = self.state / "secrets.json"
         self._lock = threading.RLock()
-        self.db = sqlite3.connect(self.state / "admin.sqlite", check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
+        conn = sqlite3.connect(self.state / "admin.sqlite", check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        self.db = _LockedDB(conn, self._lock)
         self.db.executescript(
             """
             PRAGMA journal_mode=WAL;

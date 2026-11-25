@@ -159,3 +159,95 @@ def test_folder_accepts_host_path(client, monkeypatch):
     assert {"in": f"{d}/sds/data/in", "out": f"{d}/sds/data/out"}.items() <= w["folders"][1].items()
     r = client.post("/folders/save", data={**form, "in": r"D:\Nope\in"})
     assert r.status_code == 400 and "not shared with the container" in r.text
+
+
+def _held_job(data_dir, job="20261125-100000-scan"):
+    import json
+
+    d = data_dir / "review" / job
+    (d / "thumbs").mkdir(parents=True)
+    (d / "scan.pdf").write_bytes(b"%PDF-1.4 x")
+    for i in range(1, 5):
+        (d / "thumbs" / f"p{i:04d}.jpg").write_bytes(b"\xff\xd8jpg")
+    page = {"blank": False, "ink": 0.05, "separator": None, "barcodes": [], "rotation": 0, "words": 80,
+            "confidence": 91.0, "languages": "slv+eng", "top": "RAČUN", "text": "RAČUN 1", "notes": [], "flags": []}
+    plan = {"job_id": job, "batch_name": "scan.pdf", "batch_file": "scan.pdf", "sha256": "x", "status": "ready",
+            "held_at": "2026-11-25T10:00:00", "folder": "Main", "rel": "", "out_dir": "/tmp/o", "reports_dir": "/tmp/o/_reports",
+            "profile": {"name": "example", "raw": {}},
+            "pages": [{**page, "index": i} for i in range(4)],
+            "proposals": [{"before_page": 2, "source": "text-rule", "reason": "rule 'invoice'", "accepted": False, "accepted_by": ""}],
+            "documents": [{"pages": [0, 1], "doctype": "invoice", "classification": "", "review_flags": [], "started_by": "start"},
+                          {"pages": [2, 3], "doctype": "invoice", "classification": "", "review_flags": [], "started_by": "rule"}],
+            "removed_pages": [], "document_types": []}
+    (d / "plan.json").write_text(json.dumps(plan))
+    return d
+
+
+def _operator(client):
+    from ccocr.admin.security import hash_password
+
+    store = client.app.state.store
+    store.add_user("ana", "Ana", hash_password(PW), ["operator"], must_change=False)
+    client.post("/logout", data={"csrf": client.token})
+    r = client.post("/login", data={"csrf": _csrf(client.get("/login").text), "login": "ana", "password": PW}, follow_redirects=True)
+    client.token = _csrf(r.text)
+    return client
+
+
+def test_separation_needs_operator_when_duties_are_separated(client):
+    d = _held_job(client.data_dir)
+    r = client.get("/review")
+    assert "scan.pdf" in r.text and "Separation" in r.text
+    r = client.get(f"/review/{d.name}", follow_redirects=True)
+    assert r.url.path == "/review" and "needs the Operator role" in r.text
+
+
+def test_operator_confirms_changed_split(client):
+    import json
+
+    d = _held_job(client.data_dir)
+    c = _operator(client)
+    r = c.get(f"/review/{d.name}")
+    assert r.status_code == 200 and 'id="plan-data"' in r.text
+    assert c.get(f"/review/{d.name}/page/1.jpg").content.startswith(b"\xff\xd8")
+    assert c.get(f"/review/{d.name}/page/9.jpg").status_code == 404
+    assert c.get("/review/..%2F..%2Fetc/page/1.jpg").status_code in (303, 404)
+    layout = {"documents": [{"pages": [0, 1, 2], "doctype": "contract", "classification": "4.2.1"}], "rotate": {"1": 90}}
+    r = c.post(f"/review/{d.name}/confirm", data={"csrf": c.token, "layout": json.dumps(layout), "note": "one contract"},
+               follow_redirects=True)
+    assert "1 document(s) released" in r.text
+    dec = json.loads((d / "decision.json").read_text())
+    assert dec["by"] == "ana" and dec["removed"] == [3] and dec["rotate"] == {"1": 90}
+    assert dec["documents"][0]["doctype"] == "contract"
+    # second release is refused, and the audit log has the change
+    r = c.post(f"/review/{d.name}/confirm", data={"csrf": c.token, "layout": json.dumps(layout)}, follow_redirects=True)
+    assert "no longer waiting" in r.text
+    rows = c.app.state.store.audit_rows(action="Confirm separation")
+    assert rows and rows[0]["user"] == "ana" and rows[0]["reason"] == "one contract"
+
+
+def test_operator_layout_is_checked_and_reject_needs_reason(client):
+    import json
+
+    d = _held_job(client.data_dir)
+    c = _operator(client)
+    bad = {"documents": [{"pages": [0, 1]}, {"pages": [1, 2]}]}
+    r = c.post(f"/review/{d.name}/confirm", data={"csrf": c.token, "layout": json.dumps(bad)}, follow_redirects=True)
+    assert "could not be read" in r.text and not (d / "decision.json").exists()
+    r = c.post(f"/review/{d.name}/reject", data={"csrf": c.token, "reason": ""}, follow_redirects=True)
+    assert "Write why" in r.text and not (d / "decision.json").exists()
+    c.post(f"/review/{d.name}/reject", data={"csrf": c.token, "reason": "pages missing"})
+    dec = json.loads((d / "decision.json").read_text())
+    assert dec == {**dec, "action": "reject", "by": "ana", "reason": "pages missing"}
+
+
+def test_store_survives_parallel_requests(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = client.app.state.store
+
+    def hit(_):
+        return store.user_count(), store.user_by_id(1)["login"], store.get("system")["session_minutes"]
+
+    with ThreadPoolExecutor(16) as pool:
+        assert set(pool.map(hit, range(2000))) == {(1, "tadej", 30)}

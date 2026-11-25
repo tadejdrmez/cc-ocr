@@ -69,15 +69,54 @@ def test_end_to_end_and_duplicate(tmp_path):
     assert (tmp_path / "error" / "batch.tif.error.txt").read_text().startswith("Duplicate")
 
 
-def test_auto_accept_off_holds_batch_for_operator(tmp_path):
+def _fake_hold(monkeypatch):
+    from ccocr import review
+
+    def hold(job_dir, profile, log=None, **kw):
+        review.write_json(job_dir / review.PLAN, {"status": "ready", "pages": [{}], "documents": [{"pages": [0]}], **kw,
+                                                  "out_dir": str(kw["out_dir"]), "reports_dir": str(kw["reports_dir"]),
+                                                  "batch_file": review.batch_file(job_dir).name})
+        return {"pages": [{}], "documents": [{"pages": [0]}]}
+
+    monkeypatch.setattr(review, "hold", hold)
+
+
+def test_auto_accept_off_holds_batch_for_operator(tmp_path, monkeypatch):
+    _fake_hold(monkeypatch)
     w = make(tmp_path, auto_accept=False)
     (tmp_path / "in" / "a.pdf").write_bytes(b"%PDF-1.4 x")
     (tmp_path / "in" / "a.pdf.done").write_bytes(b"")
     assert w.poll_once() == 1
     held = list((tmp_path / "review").iterdir())
-    assert len(held) == 1 and held[0].name.endswith("__a.pdf")
+    assert len(held) == 1 and held[0].is_dir() and (held[0] / "a.pdf").is_file() and (held[0] / "plan.json").is_file()
     assert not any((tmp_path / "out").iterdir())
     assert w.db.execute("SELECT status FROM batches").fetchone()[0] == "waiting-separation"
+
+
+def test_hold_that_cannot_be_analysed_goes_to_error(tmp_path):
+    w = make(tmp_path, auto_accept=False)
+    (tmp_path / "in" / "a.pdf").write_bytes(b"not a pdf")
+    (tmp_path / "in" / "a.pdf.done").write_bytes(b"")
+    w.poll_once()
+    assert not list((tmp_path / "review").iterdir())
+    assert "could not be prepared" in (tmp_path / "error" / "a.pdf.error.txt").read_text()
+
+
+def test_operator_reject_moves_batch_to_error(tmp_path, monkeypatch):
+    from ccocr import review
+
+    _fake_hold(monkeypatch)
+    w = make(tmp_path, auto_accept=False)
+    (tmp_path / "in" / "a.pdf").write_bytes(b"%PDF-1.4 x")
+    (tmp_path / "in" / "a.pdf.done").write_bytes(b"")
+    w.poll_once()
+    job = next((tmp_path / "review").iterdir())
+    review.write_json(job / review.DECISION, {"action": "reject", "by": "ana", "reason": "wrong box"})
+    w.poll_once()
+    assert not job.exists()
+    txt = (tmp_path / "error" / "a.pdf.error.txt").read_text()
+    assert "rejected" in txt and "ana" in txt and "wrong box" in txt
+    assert w.db.execute("SELECT status FROM batches").fetchone()[0] == "rejected"
 
 
 def test_folder_overrides_types_size_and_pause(tmp_path):
@@ -161,7 +200,8 @@ def test_dropped_folder_mirrored_in_output(tmp_path):
     assert (next((tmp_path / "archive").iterdir()) / "SDS 2026" / "November" / "batch.tif").exists()
 
 
-def test_waiting_batch_dropped_again_is_not_a_duplicate(tmp_path):
+def test_waiting_batch_dropped_again_is_not_a_duplicate(tmp_path, monkeypatch):
+    _fake_hold(monkeypatch)
     w = make(tmp_path, auto_accept=False)
     for _ in range(2):
         (tmp_path / "in" / "a.pdf").write_bytes(b"%PDF-1.4 x")
@@ -181,3 +221,43 @@ def test_no_split_profile_never_waits_for_operator(tmp_path):
     assert w.poll_once() == 1
     assert not list((tmp_path / "review").iterdir())
     assert len(list((tmp_path / "out").glob("*.pdf"))) == 1
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract not installed")
+def test_separation_screen_round_trip(tmp_path):
+    import json
+
+    from synth import demo_batch
+
+    from ccocr import review
+
+    w = make(tmp_path, auto_accept=False)
+    demo_batch(tmp_path / "in" / "batch.tif")
+    (tmp_path / "in" / "batch.tif.done").write_bytes(b"")
+    assert w.poll_once() == 1
+    job = next((tmp_path / "review").iterdir())
+    plan = review.read_json(job / review.PLAN)
+    assert plan["status"] == "ready" and len(plan["pages"]) == 7
+    assert plan["pages"][4]["separator"]["doctype"] == "CONTRACT"
+    assert (job / "thumbs" / "p0001.jpg").is_file() and (job / "thumbs" / "p0007-l.jpg").is_file()
+    assert not list((tmp_path / "out").glob("*.pdf"))
+
+    # The operator keeps both invoices together, drops the blank page and the sheet,
+    # and turns the last page upside down (to exercise re-reading a turned page).
+    review.write_json(job / review.DECISION, {
+        "action": "confirm", "by": "ana", "at": "2026-11-25T10:00:00",
+        "documents": [{"pages": [0, 1, 2], "doctype": "INVOICE", "classification": "1.1"},
+                      {"pages": [5, 6], "doctype": "CONTRACT", "classification": "4.2.1"}],
+        "rotate": {"6": 180},
+    })
+    w.poll_once()
+    assert not job.exists()
+    pdfs = sorted((tmp_path / "out").glob("*.pdf"))
+    assert len(pdfs) == 2
+    report = json.loads(next((tmp_path / "out" / "_reports").glob("*.json")).read_text())
+    assert report["split"]["auto_accepted"] is False and report["split"]["operator"]["by"] == "ana"
+    assert [d["batch_pages"] for d in report["documents"]] == ["1-3", "6-7"]
+    assert all(d["validation"] == "confirmed by ana" for d in report["documents"])
+    assert w.db.execute("SELECT status FROM batches").fetchone()[0] == "done"
+    assert list((tmp_path / "archive").rglob("batch.tif"))
+    assert any("by the operator" in n for p in report["pages"] if p["page"] == 7 for n in p["notes"])

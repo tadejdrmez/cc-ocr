@@ -15,12 +15,14 @@ Folders under ``root``::
 
     processing/   batches being processed (moved here atomically)
     archive/      original batches, unchanged, kept for traceability
-    error/        batches that failed, with an .error.txt next to them
+    review/       batches waiting for operator separation, one folder per job (see review.py)
+    error/        batches that failed or were rejected, with an .error.txt next to them
     .ccocr/       state database (SHA-256 of every processed batch)
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sqlite3
@@ -34,6 +36,7 @@ from typing import Any, Callable
 import yaml
 
 from .ingest import SUPPORTED, sha256_file
+from . import review
 from .pipeline import process_batch
 from .profile import Profile, load_profile
 
@@ -276,11 +279,30 @@ class Watcher:
             return
         split = folder.profile["split"]
         if split.get("proposals") and not split.get("auto_accept", False):
-            # Split proposals must be confirmed by an operator (spec 3.2): the batch waits in
-            # review/ for the separation screen. Nothing is written to the output folder.
-            self._move(work, root / "review", f"{job_id}__{path.name}")
-            self._record(digest, path.name, job_id, "waiting-separation")
-            self.log(f"job {job_id} waits for operator separation (auto-accept is off in profile {folder.profile.name})")
+            # Split proposals must be confirmed by an operator (spec 3.2): the batch is analysed
+            # once and waits in review/<job>/ for the separation screen. Nothing is written to
+            # the output folder until the operator releases it.
+            job_dir, n = root / "review" / job_id, 2
+            while job_dir.exists():  # same file name twice in one second
+                job_dir, n = root / "review" / f"{job_id}-{n}", n + 1
+            job_id = job_dir.name
+            job_dir.mkdir(parents=True)
+            held = self._move(work, job_dir, path.name)
+            try:
+                view = review.hold(job_dir, folder.profile, job_id=job_id, batch_name=path.name, sha256=digest,
+                                   out_dir=folder.out / rel, reports_dir=folder.out / "_reports",
+                                   folder=folder.name or str(folder.inbox), rel=rel.as_posix(), log=self.log)
+            except Exception as e:  # noqa: BLE001
+                dest = self._move(held, root / "error", path.name)
+                dest.with_name(dest.name + ".error.txt").write_text(
+                    f"Job {job_id} could not be prepared for separation.\n\n{traceback.format_exc()}", encoding="utf-8")
+                review.remove(job_dir)
+                self._record(digest, shown, job_id, "error")
+                self.log(f"job {job_id} moved to error/: {e}")
+                return
+            self._record(digest, shown, job_id, "waiting-separation")
+            self.log(f"job {job_id} waits for operator separation: {len(view['pages'])} page(s), "
+                     f"{len(view['documents'])} proposed document(s) (auto-accept is off in profile {folder.profile.name})")
             return
         try:
             report = process_batch(work, folder.profile, folder.out / rel, job_id=job_id, batch_name=path.name,
@@ -306,8 +328,53 @@ class Watcher:
         self._record(digest, shown, job_id, "done")
         self.log(f"job {job_id} done: {len(report['documents'])} document(s) -> {folder.out / rel}")
 
+    def release_reviewed(self) -> int:
+        """Apply operator decisions written by the console (confirm or reject)."""
+        root = self.config.root
+        done = 0
+        for job_dir in review.pending(root / "review"):
+            taken = job_dir / review.TAKEN
+            try:
+                os.replace(job_dir / review.DECISION, taken)
+                decision = review.read_json(taken)
+                plan = review.read_json(job_dir / review.PLAN)
+            except (OSError, ValueError) as e:
+                self.log(f"review {job_dir.name}: decision not readable: {e}")
+                continue
+            batch = job_dir / plan["batch_file"]
+            job_id, name, by = plan["job_id"], plan["batch_name"], str(decision.get("by") or "operator")
+            shown = f"{plan['rel']}/{name}" if plan.get("rel") not in (None, "", ".") else name
+            done += 1
+            if decision.get("action") == "reject":
+                dest = self._move(batch, root / "error", name)
+                dest.with_name(dest.name + ".error.txt").write_text(
+                    f"Job {job_id} was rejected on the separation screen by {by} at {decision.get('at', '')}.\n"
+                    f"Reason: {decision.get('reason', '')}\n", encoding="utf-8")
+                review.remove(job_dir)
+                self._record(plan["sha256"], shown, job_id, "rejected")
+                self.log(f"job {job_id} rejected by {by}")
+                continue
+            self.log(f"job {job_id}: separation confirmed by {by}, writing documents")
+            try:
+                report = review.release(job_dir, decision, log=self.log)
+            except Exception as e:  # noqa: BLE001
+                dest = self._move(batch, root / "error", name)
+                dest.with_name(dest.name + ".error.txt").write_text(
+                    f"Job {job_id} failed after the separation was confirmed by {by}.\n"
+                    f"Operator decision: {json.dumps(decision, ensure_ascii=False)}\n\n{traceback.format_exc()}",
+                    encoding="utf-8")
+                review.remove(job_dir)
+                self._record(plan["sha256"], shown, job_id, "error")
+                self.log(f"job {job_id} moved to error/: {e}")
+                continue
+            self._move(batch, root / "archive" / datetime.now().strftime("%Y-%m-%d") / (plan.get("rel") or ""), name)
+            review.remove(job_dir)
+            self._record(plan["sha256"], shown, job_id, "done")
+            self.log(f"job {job_id} done: {len(report['documents'])} document(s) -> {plan['out_dir']}")
+        return done
+
     def poll_once(self) -> int:
-        handled = 0
+        handled = self.release_reviewed()
         for folder in self.config.folders:
             if folder.paused:
                 continue

@@ -1,10 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Jobs & logs") }}{% endblock %}{% block heading %}{{ _("Jobs & logs") }}{% endblock %}
 {% block content %}
-{% if review %}<div class="card"><div class="hd">{{ _("Waiting for separation") }} <span class="pill warn">{{ review|length }}</span></div>
-  <div class="bd muted small">{{ _("These batches come from profiles with automatic acceptance off. They wait in review/ until the operator separation screen confirms them (next increment).") }}</div>
-  <div class="scroll"><table class="t"><tr><th>{{ _("Batch") }}</th><th>{{ _("Job") }}</th><th>{{ _("Since") }}</th></tr>
-  {% for r in review %}<tr><td class="mono">{{ r.name }}</td><td class="mono muted">{{ r.job }}</td><td class="muted">{{ r.at }}</td></tr>{% endfor %}</table></div></div>{% endif %}
+{% if review %}<div class="banner warn">{{ review|length }} {{ _("batch(es) wait for separation.") }} <a href="/review">{{ _("Open the separation screen") }}</a></div>{% endif %}
 <div class="card"><div class="hd">{{ _("Job reports") }}</div>
   <div class="scroll"><table class="t"><tr><th>{{ _("Report") }}</th><th>{{ _("Folder") }}</th><th>{{ _("Written") }}</th></tr>
   {% for r in reports %}<tr><td><a class="mono" href="/jobs/report?folder={{ r.folder }}&file={{ r.file|urlencode }}">{{ r.file }}</a></td><td>{{ r.folder_name }}</td><td class="muted">{{ r.at }}</td></tr>
