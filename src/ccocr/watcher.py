@@ -5,6 +5,12 @@ file is taken only when its size and modification time have not changed for
 ``stable_polls`` polls and it can be opened for writing (scanner software
 usually keeps it locked while writing), or when its marker file exists.
 
+Folders dropped into an input folder are processed too: every supported file in
+them (and in their subfolders) is a batch of its own, and its documents are
+written to the same relative subfolder of the output folder. Emptied
+subfolders are removed from the input folder once they have been quiet for a
+while.
+
 Folders under ``root``::
 
     processing/   batches being processed (moved here atomically)
@@ -15,6 +21,7 @@ Folders under ``root``::
 
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
 import time
@@ -115,6 +122,15 @@ def _candidate(p: Path, marker_suffix: str, file_types: tuple[str, ...] = ()) ->
     return p.suffix.lower() in SUPPORTED
 
 
+def _walk(inbox: Path) -> list[Path]:
+    """All entries below ``inbox``, skipping hidden/temporary folders (``.x``, ``~x``)."""
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(inbox):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith((".", "~")))
+        found.extend(Path(dirpath) / f for f in sorted(filenames))
+    return found
+
+
 def _can_open_exclusively(p: Path) -> bool:
     try:
         with open(p, "r+b"):
@@ -161,7 +177,7 @@ class Watcher:
         present = set()
         marker_suffix = self._opt(folder, "marker_suffix")
         stable_polls = self._opt(folder, "stable_polls")
-        for p in sorted(folder.inbox.iterdir()):
+        for p in _walk(folder.inbox):
             if not _candidate(p, marker_suffix, folder.file_types):
                 continue
             present.add(p)
@@ -180,9 +196,29 @@ class Watcher:
             if s.stable >= stable_polls - 1 and _can_open_exclusively(p):
                 ready.append(p)
         for p in list(self._seen):
-            if p.parent == folder.inbox and p not in present:
+            if p.is_relative_to(folder.inbox) and p not in present:
                 del self._seen[p]
         return ready
+
+    def _prune_empty_dirs(self, folder: WatchedFolder) -> None:
+        """Remove emptied subfolders of the input folder (never the input folder itself).
+
+        A folder is removed only when it has been unchanged for a while, so a
+        folder that is still being copied (created first, files later) is left alone.
+        """
+        quiet = max(60.0, self.config.poll_interval * self._opt(folder, "stable_polls") * 2)
+        now = time.time()
+        # mtimes before anything is removed: removing a child touches its parent
+        mtimes = {Path(dp): Path(dp).stat().st_mtime for dp, _d, _f in os.walk(folder.inbox)}
+        for dirpath, dirnames, filenames in os.walk(folder.inbox, topdown=False):
+            d = Path(dirpath)
+            if d == folder.inbox or filenames or any((d / n).exists() for n in dirnames):
+                continue
+            try:
+                if now - mtimes.get(d, now) >= quiet:
+                    d.rmdir()
+            except OSError:
+                pass
 
     # -- processing --------------------------------------------------------
     def _move(self, src: Path, dest_dir: Path, name: str | None = None) -> Path:
@@ -207,6 +243,8 @@ class Watcher:
 
     def handle(self, folder: WatchedFolder, path: Path) -> None:
         root = self.config.root
+        rel = path.parent.relative_to(folder.inbox) if path.parent != folder.inbox else Path()
+        shown = (rel / path.name).as_posix()
         marker = path.with_name(path.name + self._opt(folder, "marker_suffix"))
         job_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + path.stem[:20].replace(" ", "_")
         if folder.max_mb and path.stat().st_size > folder.max_mb * 1024 * 1024:
@@ -217,7 +255,7 @@ class Watcher:
             if marker.exists():
                 marker.unlink()
             self._seen.pop(path, None)
-            self.log(f"too large, moved to error/: {path.name}")
+            self.log(f"too large, moved to error/: {shown}")
             return
         work = self._move(path, root / "processing", f"{job_id}__{path.name}")
         if marker.exists():
@@ -225,18 +263,19 @@ class Watcher:
         self._seen.pop(path, None)
         digest = sha256_file(work)
         row = self.db.execute("SELECT job_id, status FROM batches WHERE sha256 = ?", (digest,)).fetchone()
-        if row and row[1] in ("done", "waiting-separation") and folder.duplicate != "reprocess":
+        if row and row[1] == "done" and folder.duplicate != "reprocess":
             if folder.duplicate == "skip":
-                self._move(work, root / "archive" / "duplicates", path.name)
-                self.log(f"duplicate skipped and archived: {path.name} (job {row[0]})")
+                self._move(work, root / "archive" / "duplicates" / rel, path.name)
+                self.log(f"duplicate skipped and archived: {shown} (job {row[0]})")
                 return
             dest = self._move(work, root / "error", path.name)
             dest.with_name(dest.name + ".error.txt").write_text(
                 f"Duplicate: identical file (SHA-256 {digest}) was already processed as job {row[0]}.\n", encoding="utf-8"
             )
-            self.log(f"duplicate skipped: {path.name} (job {row[0]})")
+            self.log(f"duplicate skipped: {shown} (job {row[0]})")
             return
-        if not folder.profile["split"].get("auto_accept", False):
+        split = folder.profile["split"]
+        if split.get("proposals") and not split.get("auto_accept", False):
             # Split proposals must be confirmed by an operator (spec 3.2): the batch waits in
             # review/ for the separation screen. Nothing is written to the output folder.
             self._move(work, root / "review", f"{job_id}__{path.name}")
@@ -244,14 +283,15 @@ class Watcher:
             self.log(f"job {job_id} waits for operator separation (auto-accept is off in profile {folder.profile.name})")
             return
         try:
-            report = process_batch(work, folder.profile, folder.out, job_id=job_id, batch_name=path.name, log=self.log)
+            report = process_batch(work, folder.profile, folder.out / rel, job_id=job_id, batch_name=path.name,
+                                   reports_dir=folder.out / "_reports", log=self.log)
         except Exception as e:  # noqa: BLE001
             n = self._failures.get(digest, 0) + 1
             self._failures[digest] = n
             retries = self._opt(folder, "retries")
             if n < retries:
                 self.log(f"job {job_id} failed (attempt {n}/{retries}), will retry: {e}")
-                self._move(work, folder.inbox, path.name)
+                self._move(work, folder.inbox / rel, path.name)
                 time.sleep(min(self.config.retry_backoff * n, 300))
                 return
             dest = self._move(work, root / "error", path.name)
@@ -261,10 +301,10 @@ class Watcher:
             self._record(digest, path.name, job_id, "error")
             self.log(f"job {job_id} moved to error/: {e}")
             return
-        archive = root / "archive" / datetime.now().strftime("%Y-%m-%d")
+        archive = root / "archive" / datetime.now().strftime("%Y-%m-%d") / rel
         self._move(work, archive, path.name)
-        self._record(digest, path.name, job_id, "done")
-        self.log(f"job {job_id} done: {len(report['documents'])} document(s) -> {folder.out}")
+        self._record(digest, shown, job_id, "done")
+        self.log(f"job {job_id} done: {len(report['documents'])} document(s) -> {folder.out / rel}")
 
     def poll_once(self) -> int:
         handled = 0
@@ -279,6 +319,7 @@ class Watcher:
             for p in files:
                 self.handle(folder, p)
                 handled += 1
+            self._prune_empty_dirs(folder)
         return handled
 
     def _reload_if_changed(self, mtime: float | None) -> float | None:

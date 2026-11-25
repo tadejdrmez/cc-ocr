@@ -75,7 +75,7 @@ SECTIONS: list[tuple[str, str, list[Field]]] = [
               [("auto", "Automatic (PDF/A-3 for single file, PDF/A-2 with sidecars)"), ("pdfa-2", "PDF/A-2b"), ("pdfa-3", "PDF/A-3b")]),
     ]),
     ("split", "Split", [
-        Field("split.proposals", "Split proposals", "multi", "Automatic methods only propose split points.",
+        Field("split.proposals", "Split proposals", "multi", "Automatic methods only propose split points. Select none for no splitting: every input file becomes one searchable PDF and nothing waits for an operator.",
               [("qr-separator", "QR separator sheets"), ("blank-page", "Blank pages"), ("text-rule", "Text rules"),
                ("fixed-count", "Fixed page count")]),
         Field("split.zone", "Top / bottom zone for rules (%)", "percent", "Share of the page height that 'top' and 'bottom' look at.",
@@ -83,7 +83,7 @@ SECTIONS: list[tuple[str, str, list[Field]]] = [
         Field("split.fixed_count", "Fixed page count", "int", "Only used when 'Fixed page count' is on. Empty = off.", min=1, max=1000),
         Field("split.drop_blank_pages", "Remove blank pages from documents", "bool"),
         Field("split.auto_accept", "Accept split proposals automatically", "bool",
-              "Off by default: batches wait for an operator to confirm the split. Turning it on needs a reason and is audited.",
+              "Off by default: batches wait for an operator to confirm the split. Turning it on needs a reason and is audited. Not needed when no split proposals are selected.",
               audited_reason=True),
     ]),
     ("output", "Output & naming", [

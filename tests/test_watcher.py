@@ -6,8 +6,11 @@ from ccocr.profile import load_profile
 from ccocr.watcher import WatchConfig, WatchedFolder, Watcher
 
 
-def make(tmp_path, auto_accept=True, **kw):
-    prof = load_profile({"timestamp": {"mode": "none"}, "split": {"auto_accept": auto_accept}})
+def make(tmp_path, auto_accept=True, proposals=None, **kw):
+    split = {"auto_accept": auto_accept}
+    if proposals is not None:
+        split["proposals"] = proposals
+    prof = load_profile({"timestamp": {"mode": "none"}, "split": split})
     folder_kw = {k: kw.pop(k) for k in list(kw) if k in ("paused", "file_types", "max_mb", "duplicate", "require_marker")}
     cfg = WatchConfig(
         root=tmp_path,
@@ -106,3 +109,75 @@ def test_config_reload(tmp_path):
     w._reload_if_changed(m)
     assert [f.name for f in w.config.folders] == ["", "second"] and w.config.folders[1].paused
     assert (tmp_path / "in2").is_dir()
+
+
+def test_dropped_folder_files_found_hidden_folders_skipped(tmp_path):
+    w = make(tmp_path)
+    inbox = tmp_path / "in"
+    (inbox / "Batch A" / "sub").mkdir(parents=True)
+    (inbox / ".hidden").mkdir()
+    (inbox / "Batch A" / "a.pdf").write_bytes(b"x")
+    (inbox / "Batch A" / "sub" / "b.pdf").write_bytes(b"x")
+    (inbox / "Batch A" / "sub" / "b.pdf.done").write_bytes(b"")
+    (inbox / ".hidden" / "c.pdf").write_bytes(b"x")
+    folder = w.config.folders[0]
+    assert [p.name for p in w.ready_files(folder)] == ["b.pdf"]
+    w.ready_files(folder)
+    assert sorted(p.name for p in w.ready_files(folder)) == ["a.pdf", "b.pdf"]
+
+
+def test_empty_subfolders_pruned_only_when_quiet(tmp_path):
+    import os
+    import time
+
+    w = make(tmp_path)
+    inbox = tmp_path / "in"
+    old = inbox / "done" / "deep"
+    old.mkdir(parents=True)
+    fresh = inbox / "copying"
+    fresh.mkdir()
+    past = time.time() - 3600
+    for d in (old, old.parent):
+        os.utime(d, (past, past))
+    w._prune_empty_dirs(w.config.folders[0])
+    assert not (inbox / "done").exists()
+    assert fresh.exists() and inbox.exists()
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract not installed")
+def test_dropped_folder_mirrored_in_output(tmp_path):
+    from synth import demo_batch
+
+    w = make(tmp_path)
+    sub = tmp_path / "in" / "SDS 2026" / "November"
+    sub.mkdir(parents=True)
+    demo_batch(sub / "batch.tif")
+    (sub / "batch.tif.done").write_bytes(b"")
+    assert w.poll_once() == 1
+    out_sub = tmp_path / "out" / "SDS 2026" / "November"
+    assert len(list(out_sub.glob("*.pdf"))) == 2
+    assert list((tmp_path / "out" / "_reports").glob("*.job-report.json"))
+    assert not (out_sub / "_reports").exists()
+    assert (next((tmp_path / "archive").iterdir()) / "SDS 2026" / "November" / "batch.tif").exists()
+
+
+def test_waiting_batch_dropped_again_is_not_a_duplicate(tmp_path):
+    w = make(tmp_path, auto_accept=False)
+    for _ in range(2):
+        (tmp_path / "in" / "a.pdf").write_bytes(b"%PDF-1.4 x")
+        (tmp_path / "in" / "a.pdf.done").write_bytes(b"")
+        assert w.poll_once() == 1
+    assert len(list((tmp_path / "review").iterdir())) == 2
+    assert not list((tmp_path / "error").iterdir())
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract not installed")
+def test_no_split_profile_never_waits_for_operator(tmp_path):
+    from synth import demo_batch
+
+    w = make(tmp_path, auto_accept=False, proposals=[])
+    demo_batch(tmp_path / "in" / "batch.tif")
+    (tmp_path / "in" / "batch.tif.done").write_bytes(b"")
+    assert w.poll_once() == 1
+    assert not list((tmp_path / "review").iterdir())
+    assert len(list((tmp_path / "out").glob("*.pdf"))) == 1

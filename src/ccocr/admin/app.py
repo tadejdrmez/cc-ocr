@@ -268,7 +268,11 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
             inbox = Path(f["in"])
             if not inbox.is_dir():
                 return {"ok": False, "waiting": 0, "msg": "input folder not found"}
-            st["waiting"] = sum(1 for p in inbox.iterdir() if p.is_file() and not p.name.startswith((".", "~")))
+            waiting = 0
+            for _dp, dirs, files in os.walk(inbox):  # dropped folders count too
+                dirs[:] = [d for d in dirs if not d.startswith((".", "~"))]
+                waiting += sum(1 for n in files if not n.startswith((".", "~")))
+            st["waiting"] = waiting
             if not Path(f["out"]).is_dir():
                 st.update(ok=False, msg="output folder not found")
         except OSError as e:

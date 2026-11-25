@@ -110,6 +110,7 @@ def process_batch(
     batch_name: str | None = None,
     workers: int | None = None,
     confirmed_by: str | None = None,
+    reports_dir: Path | None = None,
     log: Log = lambda m: None,
 ) -> dict[str, Any]:
     started = datetime.now(timezone.utc).astimezone()
@@ -358,9 +359,9 @@ def process_batch(
         "documents": documents_report,
         "warnings": warnings,
     }
-    reports = out_dir / "_reports"
-    reports.mkdir(exist_ok=True)
+    reports = reports_dir or out_dir / "_reports"
+    reports.mkdir(parents=True, exist_ok=True)
     report_path = reports / f"{batch_stem}.{job_id}.job-report.json"
     write_atomic(report_path, json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
-    report["report_file"] = str(report_path.relative_to(out_dir))
+    report["report_file"] = str(report_path)
     return report
