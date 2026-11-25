@@ -15,8 +15,8 @@
         {% elif j.state == "failed" %}<span class="pill bad" title="{{ j.error }}">{{ _("Analysis failed") }}</span>
         {% else %}<span class="pill" title="{{ _('Held before the separation screen existed. Drop the file into its input folder again to analyse it.') }}">{{ _("Held by an earlier version") }}</span>{% endif %}</td>
     <td class="muted">{{ j.at }}</td>
-    <td>{% if j.state == "ready" and can_separate %}<a class="btn sm pri" href="/review/{{ j.job }}">{{ _("Separate") }}</a>
-        {% elif j.state == "failed" and can_separate %}<form method="post" action="/review/{{ j.job }}/reject" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" value="Analysis failed" aria-label="{{ _('Reason') }}"><button class="btn sm">{{ _("Move to errors") }}</button></form>{% endif %}</td>
+    <td>{% if j.state == "ready" and can_separate %}<a class="btn sm pri" href="/review/{{ j.job|urlencode }}">{{ _("Separate") }}</a>
+        {% elif j.state == "failed" and can_separate %}<form method="post" action="/review/{{ j.job|urlencode }}/reject" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" value="Analysis failed" aria-label="{{ _('Reason') }}"><button class="btn sm">{{ _("Move to errors") }}</button></form>{% endif %}</td>
   </tr>{% else %}<tr><td colspan="7" class="muted">{{ _("No batches are waiting.") }}</td></tr>{% endfor %}
   </table></div></div>
 {% endblock %}

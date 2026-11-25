@@ -14,7 +14,7 @@
       <button type="button" class="btn sm" id="pv-rm"></button></div>
       <div class="bd"><div class="pv-img"><img id="pv-img" alt=""></div><div id="pv-info" class="small"></div>
       <details><summary class="small">{{ _("OCR text") }}</summary><pre class="code" id="pv-text"></pre></details></div></div>
-    <form class="card" method="post" action="/review/{{ job }}/confirm" id="confirm-form">
+    <form class="card" method="post" action="/review/{{ job|urlencode }}/confirm" id="confirm-form">
       <div class="hd">{{ _("Release") }}</div>
       <div class="bd col"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="layout" id="layout">
         <div id="changes" class="small"></div>
@@ -22,7 +22,7 @@
         <button class="btn pri">{{ _("Confirm split and release") }}</button>
         <div class="muted small">{{ _("Confirmed as") }} {{ login }}. {{ _("The documents are written and timestamped on the watcher's next poll.") }}</div></div>
     </form>
-    <form class="card" method="post" action="/review/{{ job }}/reject">
+    <form class="card" method="post" action="/review/{{ job|urlencode }}/reject">
       <div class="hd">{{ _("Reject batch") }}</div>
       <div class="bd col"><input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="f"><label for="reason">{{ _("Reason") }}</label><input id="reason" name="reason" required maxlength="500" placeholder="{{ _('e.g. pages missing, rescan needed') }}"></div>

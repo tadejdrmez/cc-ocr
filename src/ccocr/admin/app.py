@@ -148,7 +148,6 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
                 "error": count("error"), "processing": count("processing")}
 
     # -- operator separation (review/<job>/, written by the watcher; see ccocr/review.py) --
-    JOB_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
 
     def review_dir() -> Path:
         return store.data / "review"
@@ -191,10 +190,18 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
         return u
 
     def job_dir_or_none(job: str) -> Path | None:
-        if not JOB_RE.match(job):
+        # Job ids come from file names (račun_št, scan(1), ...): accept any name that is a
+        # direct child folder of review/, and nothing that could leave it.
+        if not job or job in (".", "..") or len(job) > 200 or any(c in job for c in "/\\\0"):
             return None
-        d = review_dir() / job
-        return d if d.is_dir() else None
+        rd = review_dir()
+        d = rd / job
+        try:
+            if d.is_symlink() or not d.is_dir() or d.resolve().parent != rd.resolve():
+                return None
+        except OSError:
+            return None
+        return d
 
     def doctype_options() -> list[tuple[str, str]]:
         return [(d["code"], f"{d['label']} ({d['code']})") for d in store.get("doctypes")]
@@ -440,7 +447,7 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
                       if 0 <= int(k) < n and int(v) % 90 == 0 and int(v) % 360}
         except (ValueError, TypeError, AttributeError) as e:
             flash(request, f"The layout could not be read: {e}", "bad")
-            return RedirectResponse(f"/review/{job}", 303)
+            return RedirectResponse(f"/review/{quote(job)}", 303)
         removed = sorted(set(range(n)) - seen)
         login, role = actor(u)
         decision = {"action": "confirm", "by": login, "role": role, "at": now_iso(), "documents": docs,
@@ -467,7 +474,7 @@ def create_app(data_dir: Path, seed_config: Path | None = None) -> FastAPI:
             return RedirectResponse("/review", 303)
         if not reason:
             flash(request, "Write why the batch is rejected.", "bad")
-            return RedirectResponse(f"/review/{job}" if job_state(d)[0] == "ready" else "/review", 303)
+            return RedirectResponse(f"/review/{quote(job)}" if job_state(d)[0] == "ready" else "/review", 303)
         plan = job_state(d)[1]
         login, role = actor(u)
         if not _write_decision(d, {"action": "reject", "by": login, "role": role, "at": now_iso(), "reason": reason}):

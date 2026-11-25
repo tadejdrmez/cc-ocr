@@ -251,3 +251,21 @@ def test_store_survives_parallel_requests(client):
 
     with ThreadPoolExecutor(16) as pool:
         assert set(pool.map(hit, range(2000))) == {(1, "tadej", 30)}
+
+
+def test_separation_opens_jobs_named_after_any_file(client):
+    from urllib.parse import quote
+
+    c = _operator(client)
+    for job in ("20261125-100000-račun_št", "20261125-100001-scan(1) #2"):
+        d = _held_job(client.data_dir, job)
+        assert f'href="/review/{quote(job)}"' in c.get("/review").text
+        r = c.get(f"/review/{quote(job)}")
+        assert r.status_code == 200 and 'id="plan-data"' in r.text, job
+        assert c.get(f"/review/{quote(job)}/page/1.jpg").status_code == 200
+        r = c.post(f"/review/{quote(job)}/reject", data={"csrf": c.token, "reason": "test"}, follow_redirects=True)
+        assert (d / "decision.json").exists()
+    (client.data_dir / "elsewhere").mkdir()
+    for bad in ("..", "..%2Felsewhere", "%2E%2E"):
+        r = c.get(f"/review/{bad}", follow_redirects=True)
+        assert r.url.path in ("/review", "/") or r.status_code == 404
