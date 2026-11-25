@@ -1,0 +1,23 @@
+{% macro csrf_field() %}<input type="hidden" name="csrf" value="{{ csrf }}">{% endmacro %}
+{% macro field(f, data, langs) %}
+  {% set v = display_value(f, get_path(data, f.key)) %}
+  <div class="f">
+  {% if f.kind == 'bool' %}
+    <label class="check" style="color:var(--ink);font-size:13.5px;font-weight:400"><input type="checkbox" name="{{ f.key }}" {{ 'checked' if v }} data-initial="{{ '1' if v else '0' }}"> {{ _(f.label) }}</label>
+  {% else %}
+    <label for="{{ f.key }}">{{ _(f.label) }}</label>
+    {% if f.kind == 'select' %}
+      <select id="{{ f.key }}" name="{{ f.key }}">{% for val, lab in field_options(f) %}<option value="{{ val }}" {{ 'selected' if v == val }}>{{ lab }}</option>{% endfor %}</select>
+    {% elif f.kind == 'multi' %}
+      <div class="checks">{% for val, lab in field_options(f) %}<label class="check"><input type="checkbox" name="{{ f.key }}" value="{{ val }}" {{ 'checked' if v and val in v }}> {{ lab }}</label>{% endfor %}</div>
+    {% elif f.kind == 'langs' %}
+      <input id="{{ f.key }}" name="{{ f.key }}" value="{{ v }}" class="mono" list="langs-list">
+    {% elif f.kind in ('int','float','percent') %}
+      <input id="{{ f.key }}" name="{{ f.key }}" type="number" step="{{ '1' if f.kind == 'int' else 'any' }}" value="{{ v if v is not none else '' }}" {% if f.min is not none %}min="{{ f.min }}"{% endif %} {% if f.max is not none %}max="{{ f.max }}"{% endif %}>
+    {% else %}
+      <input id="{{ f.key }}" name="{{ f.key }}" value="{{ v or '' }}" {% if f.key == 'output.naming' %}class="mono"{% endif %}>
+    {% endif %}
+  {% endif %}
+  {% if f.help %}<div class="help">{{ _(f.help) }}</div>{% endif %}
+  </div>
+{% endmacro %}

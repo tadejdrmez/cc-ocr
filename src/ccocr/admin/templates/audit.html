@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Audit log") }}{% endblock %}{% block heading %}{{ _("Audit log") }}{% endblock %}
+{% block content %}
+<form class="actions" method="get">
+  <select name="user" style="width:auto"><option value="">{{ _("All users") }}</option>{% for u in users %}<option {{ 'selected' if f.user == u }}>{{ u }}</option>{% endfor %}</select>
+  <select name="action" style="width:auto"><option value="">{{ _("All actions") }}</option>{% for a in actions %}<option {{ 'selected' if f.action == a }}>{{ a }}</option>{% endfor %}</select>
+  <input type="search" name="q" value="{{ f.q }}" placeholder="{{ _('Search object, values, reason') }}" style="max-width:260px">
+  <button class="btn">{{ _("Filter") }}</button>
+  <span style="flex:1"></span>
+  <a class="btn" href="/audit.csv?user={{ f.user|urlencode }}&action={{ f.action|urlencode }}&q={{ f.q|urlencode }}">{{ _("Export CSV") }}</a>
+</form>
+<div class="card"><div class="scroll"><table class="t"><tr><th>{{ _("Time") }}</th><th>{{ _("User") }}</th><th>{{ _("Role") }}</th><th>{{ _("Action") }}</th><th>{{ _("Object") }}</th><th>{{ _("Old") }}</th><th>{{ _("New") }}</th><th>{{ _("Reason") }}</th></tr>
+{% for r in rows %}<tr><td class="mono small">{{ r['at'][:19]|replace('T',' ') }}</td><td>{{ r['user'] }}</td><td class="small">{{ r['role'] }}</td>
+<td>{{ r['action'] }}</td><td class="small">{{ r['object'] }}</td>
+<td class="mono small" style="max-width:260px;word-break:break-word">{{ (r['old'] or '')[:400] }}</td><td class="mono small" style="max-width:260px;word-break:break-word">{{ (r['new'] or '')[:400] }}</td><td class="small">{{ r['reason'] or '' }}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">{{ _("No entries.") }}</td></tr>{% endfor %}</table></div></div>
+<p class="muted small">{{ _("The audit log is append-only: entries cannot be edited or deleted in the console. Showing the newest 500.") }}</p>
+{% endblock %}

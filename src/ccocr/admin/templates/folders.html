@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("Folders") }}{% endblock %}{% block heading %}{{ _("Folders") }}{% endblock %}
+{% block content %}
+<div class="card"><div class="hd">{{ _("Watched folders") }}<span class="sp"></span><a class="btn pri" href="/folders/new">+ {{ _("Add folder") }}</a></div>
+<div class="scroll"><table class="t"><tr><th>{{ _("Name") }}</th><th>{{ _("Input") }}</th><th>{{ _("Output") }}</th><th>{{ _("Profile") }}</th><th>{{ _("Access") }}</th><th>{{ _("Status") }}</th></tr>
+{% for f in folders %}<tr><td><a href="/folders/{{ f.id }}"><b>{{ f.name }}</b></a></td><td class="mono">{{ f.host_in or f['in'] }}</td><td class="mono">{{ f.host_out or f.out }}</td><td>{{ f.profile or '–' }}</td>
+<td>{{ {'local':_('Local'),'smb':_('SMB share'),'smb-tunnel':_('SMB via tunnel'),'sync-agent':_('Sync agent')}.get(f.access, f.access) }}</td>
+<td>{% if f.paused %}<span class="dot warn"></span>{{ _("paused") }}{% elif f.status.ok %}<span class="dot ok"></span>{{ _("online") }}{% else %}<span class="dot bad"></span>{{ f.status.msg }}{% endif %}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">{{ _("No folders yet.") }}</td></tr>{% endfor %}</table></div></div>
+<form class="card" method="post" action="/folders/watch">{{ csrf_field() }}<div class="hd">{{ _("Watch settings for all folders") }}</div><div class="bd col">
+  <div class="fgrid">
+    <div class="f"><label for="poll_interval">{{ _("Poll interval (seconds)") }}</label><input id="poll_interval" name="poll_interval" type="number" min="2" max="3600" value="{{ watch.poll_interval }}"><div class="help">{{ _("10 s for local folders, 30 s for folders over a tunnel.") }}</div></div>
+    <div class="f"><label for="stable_polls">{{ _("Stable polls before a file is taken") }}</label><input id="stable_polls" name="stable_polls" type="number" min="1" max="20" value="{{ watch.stable_polls }}"><div class="help">{{ _("3 local, 4 over a tunnel. A folder can override this.") }}</div></div>
+    <div class="f"><label for="marker_suffix">{{ _("Marker file suffix") }}</label><input id="marker_suffix" name="marker_suffix" value="{{ watch.marker_suffix }}" class="mono"><div class="help">{{ _("Scanner writes batch.pdf, then batch.pdf.done.") }}</div></div>
+    <div class="f"><label for="retries">{{ _("Attempts before error/") }}</label><input id="retries" name="retries" type="number" min="1" max="20" value="{{ watch.retries }}"></div>
+    <div class="f"><label for="retry_backoff">{{ _("Wait between attempts (seconds)") }}</label><input id="retry_backoff" name="retry_backoff" type="number" min="1" max="300" value="{{ watch.retry_backoff }}"><div class="help">{{ _("Grows with each attempt, at most 5 minutes.") }}</div></div>
+  </div>
+  <div class="checks"><label class="check"><input type="checkbox" name="remote" {{ 'checked' if watch.remote }}> {{ _("Folders are reached over a tunnel (remote)") }}</label>
+    <label class="check"><input type="checkbox" name="require_marker" {{ 'checked' if watch.require_marker }}> {{ _("Require marker file") }}</label></div>
+  <div class="actions"><button class="btn pri">{{ _("Save") }}</button></div></div></form>
+{% endblock %}

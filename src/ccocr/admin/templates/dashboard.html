@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Dashboard") }}{% endblock %}{% block heading %}{{ _("Dashboard") }}{% endblock %}
+{% block content %}
+{% if seed_notes %}<div class="banner acc">{{ _("First start: the existing configuration was imported.") }} {{ seed_notes|join('; ') }}</div>{% endif %}
+{% if not watch_cfg %}<div class="banner warn">{{ _("No folder is configured yet. Add a folder so the watcher starts processing.") }} <a href="/folders/new">{{ _("Add folder") }}</a></div>{% endif %}
+<div class="kpis">
+  <div class="kpi {{ 'attn' if nav_counts.review }}"><div class="l">{{ _("Waiting for separation") }}</div><div class="v">{{ nav_counts.review }}</div><div class="s">{{ _("batches in review/") }}</div></div>
+  <div class="kpi"><div class="l">{{ _("Processing now") }}</div><div class="v">{{ nav_counts.processing }}</div><div class="s">{{ _("batches") }}</div></div>
+  <div class="kpi"><div class="l">{{ _("Done today") }}</div><div class="v">{{ done_today }}</div><div class="s">{{ _("batches") }}</div></div>
+  <div class="kpi {{ 'err' if nav_counts.error }}"><div class="l">{{ _("Errors") }}</div><div class="v">{{ nav_counts.error }}</div><div class="s">{{ _("files in error/") }}</div></div>
+  <div class="kpi"><div class="l">{{ _("Disk on data folder") }}</div><div class="v">{{ ((disk.used / disk.total) * 100)|round|int }} %</div><div class="s">{{ (disk.free / 1024**3)|round(1) }} GB {{ _("free") }}</div></div>
+</div>
+<div class="row">
+  <div class="card" style="flex:2 1 520px"><div class="hd">{{ _("Recent batches") }}<span class="sp"></span><a class="btn sm" href="/jobs">{{ _("All jobs") }}</a></div>
+    <div class="scroll"><table class="t"><tr><th>{{ _("Batch") }}</th><th>{{ _("Job") }}</th><th>{{ _("Status") }}</th><th>{{ _("When") }}</th></tr>
+    {% for b in batches %}<tr><td class="mono">{{ b.name }}</td><td class="mono muted">{{ b.job }}</td>
+      <td>{% if b.status == 'done' %}<span class="pill ok">{{ _("done") }}</span>{% elif b.status == 'error' %}<span class="pill bad">{{ _("error") }}</span>{% else %}<span class="pill warn">{{ _("waiting for separation") }}</span>{% endif %}</td>
+      <td class="muted">{{ b.at }}</td></tr>
+    {% else %}<tr><td colspan="4" class="muted">{{ _("No batches processed yet.") }}</td></tr>{% endfor %}</table></div></div>
+  <div class="card" style="flex:1 1 320px"><div class="hd">{{ _("Watched folders") }}</div>
+    <table class="t">{% for f in folders %}<tr><td><span class="dot {{ 'warn' if f.paused else ('ok' if f.status.ok else 'bad') }}"></span><a href="/folders/{{ f.id }}">{{ f.name }}</a></td>
+      <td class="muted small">{% if f.paused %}{{ _("paused") }}{% elif not f.status.ok %}{{ f.status.msg }}{% else %}{{ f.status.waiting }} {{ _("file(s) in input") }}{% endif %}</td></tr>
+    {% else %}<tr><td class="muted">{{ _("No folders yet.") }}</td></tr>{% endfor %}</table></div>
+</div>
+{% endblock %}

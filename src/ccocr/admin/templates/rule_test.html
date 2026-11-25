@@ -1,0 +1,11 @@
+<details><summary>{{ _("Test on sample text") }}</summary>
+<div class="col" data-rule-test data-zone="{{ data.split.zone }}" style="margin-top:8px">
+  <div class="f"><label>{{ _("Paste the OCR text of a page (one line per text line)") }}</label><textarea name="sample" rows="5">RAČUN št. 2026-118
+Mlekarna Celje-Šentjur d.o.o.
+Ljubljanska 12, 3000 Celje
+Datum: 12.11.2026</textarea></div>
+  <div class="actions"><label class="small">{{ _("Page number") }} <input name="page" type="number" value="2" min="1" style="width:70px"></label>
+    <label class="check small"><input type="checkbox" name="prev_blank"> {{ _("previous page was blank") }}</label>
+    <button type="button" class="btn sm">{{ _("Test") }}</button></div>
+  <div class="out"></div>
+</div></details>

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# CC OCR - scanned-document importer (proof of concept, increment 0)
+# CC OCR - scanned-document importer and admin web console
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tesseract-ocr tesseract-ocr-osd \
         tesseract-ocr-slv tesseract-ocr-eng tesseract-ocr-hrv tesseract-ocr-srp \
         tesseract-ocr-srp-latn tesseract-ocr-bos tesseract-ocr-sqi \
-        python3 python3-venv ghostscript qpdf pngquant openssl fonts-dejavu-core libglib2.0-0 tini \
+        python3 python3-venv ghostscript qpdf pngquant jbig2 openssl fonts-dejavu-core libglib2.0-0 tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -34,6 +34,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 
 USER ccocr
 VOLUME ["/data"]
+EXPOSE 8080
 ENV CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
 ENTRYPOINT ["tini", "--", "entrypoint.sh"]
 CMD ["watch", "--config", "/app/config/watch.yaml"]

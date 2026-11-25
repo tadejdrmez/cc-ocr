@@ -1,0 +1,83 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field, field with context %}
+{% block title %}{{ name }}{% endblock %}{% block heading %}{{ _("Profile") }} · {{ name }}{% endblock %}
+{% block content %}
+<datalist id="langs-list">{% for l in langs %}<option value="{{ l }}">{% endfor %}</datalist>
+{% if draft %}
+<form class="banner acc" method="post" action="/profiles/{{ name|urlencode }}/publish">{{ csrf_field() }}
+  <b>{{ _("Draft") }} v{{ draft['version'] }}</b>
+  <span>{% if pub %}{{ _("Folders still use published") }} v{{ pub['version'] }}. <a href="?tab=history&a={{ pub['version'] }}&b={{ draft['version'] }}">{{ _("Compare") }}</a>{% else %}{{ _("Not published yet.") }}{% endif %}</span>
+  <span style="flex:1"></span>
+  <input name="comment" placeholder="{{ _('What changed (optional)') }}" style="max-width:260px">
+  <button class="btn pri">{{ _("Publish") }} v{{ draft['version'] }}</button>
+</form>
+{% elif pub %}<div class="banner ok">{{ _("Published") }} v{{ pub['version'] }} {{ _("is active") }}{% if used %} {{ _("in") }} {{ used|join(', ') }}{% endif %}. {{ _("Saving any change creates a new draft.") }}</div>{% endif %}
+<div class="card">
+<nav class="tabs">{% for sid, label, _f in SECTIONS %}<a href="?tab={{ sid }}" class="{{ 'on' if tab == sid }}">{{ _(label) }}</a>{% if sid == 'split' %}<a href="?tab=rules" class="{{ 'on' if tab == 'rules' }}">{{ _("Split rules") }} ({{ data.split.rules|length }})</a>{% endif %}{% endfor %}<a href="?tab=history" class="{{ 'on' if tab == 'history' }}">{{ _("History") }}</a></nav>
+<div class="bd">
+{% if tab == 'rules' %}
+  <p class="muted small" style="margin-top:0">{{ _("Rules are boolean expressions on the OCR text of each page. A match proposes a split before that page; it is never applied without confirmation unless automatic acceptance is on.") }}
+  {% if 'text-rule' not in data.split.proposals %}<span class="pill warn">{{ _("Text rules are switched off in the Split tab.") }}</span>{% endif %}</p>
+  {% for r in data.split.rules %}{% set i = loop.index0 %}
+  <form class="card" method="post" action="/profiles/{{ name|urlencode }}/rules" style="margin-bottom:12px">{{ csrf_field() }}<input type="hidden" name="idx" value="{{ i }}">
+    <div class="hd">{{ loop.index }}. {{ r.name }}<span class="sp"></span>
+      <button class="btn sm" name="op" value="up" {{ 'disabled' if loop.first }}>↑</button><button class="btn sm" name="op" value="down" {{ 'disabled' if loop.last }}>↓</button>
+      <button class="btn sm danger" name="op" value="delete" data-confirm="{{ _('Click again to delete') }}">{{ _("Delete") }}</button></div>
+    <div class="bd col">
+      <div class="fgrid"><div class="f"><label>{{ _("Name") }}</label><input name="name" value="{{ r.name }}"></div>
+        <div class="f"><label>{{ _("Document type for the new document") }}</label><input name="doctype" value="{{ r.doctype or '' }}" list="dt-list"></div>
+        <div class="f"><label>{{ _("Classification") }}</label><input name="classification" value="{{ r.classification or '' }}"></div></div>
+      <div class="f"><label>{{ _("Expression") }}</label><textarea name="expr" rows="3">{{ r.expr }}</textarea></div>
+      {% include "rule_test.html" %}
+      <div class="actions"><button class="btn pri" name="op" value="save">{{ _("Save rule") }}</button></div>
+    </div></form>
+  {% endfor %}
+  <form class="card" method="post" action="/profiles/{{ name|urlencode }}/rules">{{ csrf_field() }}<div class="hd">{{ _("New rule") }}</div><div class="bd col">
+    <div class="fgrid"><div class="f"><label>{{ _("Name") }}</label><input name="name" placeholder="invoice-header" required></div>
+      <div class="f"><label>{{ _("Document type for the new document") }}</label><input name="doctype" list="dt-list"></div>
+      <div class="f"><label>{{ _("Classification") }}</label><input name="classification"></div></div>
+    <div class="f"><label>{{ _("Expression") }}</label><textarea name="expr" rows="3" placeholder='top matches /(RAČUN|INVOICE)\s+(št|no)\.?/i AND NOT top contains "nadaljevanje"' required></textarea></div>
+    {% include "rule_test.html" %}
+    <div class="actions"><button class="btn pri" name="op" value="add">{{ _("Add rule") }}</button></div></div></form>
+  <details style="margin-top:12px"><summary>{{ _("Expression syntax") }}</summary><pre class="code">fields      text (whole page), top, bottom (zones set in the Split tab)
+tests       contains "…"   startswith "…"   matches /regex/i
+numbers     page, words, confidence   with == != &lt; &lt;= &gt; &gt;=
+flags       prev_blank, first_page
+logic       AND  OR  NOT  ( … )
+
+top matches /(RAČUN|INVOICE|РАЧУН)\s+(št|no|бр)\.?/i AND NOT top contains "nadaljevanje"
+text contains "Pogodba" AND page &gt; 1
+prev_blank AND words &gt; 20</pre></details>
+  <datalist id="dt-list">{% for o in field_options(SECTIONS[0][2][1]) %}<option value="{{ o[0] }}">{% endfor %}</datalist>
+{% elif tab == 'history' %}
+  <div class="scroll"><table class="t"><tr><th>{{ _("Version") }}</th><th>{{ _("Status") }}</th><th>{{ _("By") }}</th><th>{{ _("When") }}</th><th>{{ _("Note") }}</th><th></th></tr>
+  {% for v in versions %}<tr><td>v{{ v['version'] }}</td><td><span class="pill {{ {'published':'ok','draft':'acc'}.get(v['status'],'n') }}">{{ _(v['status']) }}</span></td>
+    <td>{{ v['created_by'] }}</td><td class="muted">{{ v['created_at'][:16]|replace('T',' ') }}</td><td class="small">{{ v['comment'] or '' }}</td>
+    <td class="actions"><a class="btn sm" href="/profiles/{{ name|urlencode }}/export?v={{ v['version'] }}">{{ _("Export YAML") }}</a>
+      {% if v['status'] == 'archived' %}<form method="post" action="/profiles/{{ name|urlencode }}/rollback/{{ v['version'] }}">{{ csrf_field() }}<button class="btn sm">{{ _("Restore as draft") }}</button></form>{% endif %}</td></tr>{% endfor %}</table></div>
+  {% if diff is defined %}
+  <form class="actions" method="get" style="margin:14px 0 8px"><input type="hidden" name="tab" value="history">{{ _("Compare") }}
+    <select name="a" style="width:auto">{% for v in versions %}<option value="{{ v['version'] }}" {{ 'selected' if v['version'] == a }}>v{{ v['version'] }}</option>{% endfor %}</select> →
+    <select name="b" style="width:auto">{% for v in versions %}<option value="{{ v['version'] }}" {{ 'selected' if v['version'] == b }}>v{{ v['version'] }}</option>{% endfor %}</select>
+    <button class="btn sm">{{ _("Show") }}</button></form>
+  <pre class="code diff">{% for l in diff %}<span class="{{ 'add' if l.startswith('+') else 'del' if l.startswith('-') else 'hunk' if l.startswith('@@') else '' }}">{{ l }}</span>
+{% else %}{{ _("No differences.") }}{% endfor %}</pre>
+  {% endif %}
+  <div class="actions" style="margin-top:14px">
+    {% if draft %}<form method="post" action="/profiles/{{ name|urlencode }}/discard">{{ csrf_field() }}<button class="btn danger" data-confirm="{{ _('Click again to discard') }}">{{ _("Discard draft") }}</button></form>{% endif %}
+    <form method="post" action="/profiles/{{ name|urlencode }}/delete">{{ csrf_field() }}<button class="btn danger" data-confirm="{{ _('Click again to delete all versions') }}" {{ 'disabled' if used }}>{{ _("Delete profile") }}</button></form>
+    {% if used %}<span class="muted small">{{ _("Used by") }} {{ used|join(', ') }}</span>{% endif %}
+  </div>
+{% else %}
+  {% for sid, label, fields in SECTIONS if sid == tab %}
+  <form method="post" action="/profiles/{{ name|urlencode }}/section/{{ sid }}" class="col" {% if sid == 'output' %}data-naming{% endif %}>{{ csrf_field() }}
+    {% if sid == 'general' %}<div class="f"><label>{{ _("Profile name") }}</label><input value="{{ name }}" readonly class="mono"></div>{% endif %}
+    <div class="fgrid">{% for f in fields %}{{ field(f, data, langs) }}{% endfor %}</div>
+    {% if sid == 'output' %}<div><div class="lbl">{{ _("Preview with sample values") }}</div><div class="preview banner acc">…</div></div>{% endif %}
+    {% if sid == 'ocr' %}<div class="banner warn">{{ _("Every extra language slows OCR and can lower accuracy on short words. Keep sets as small as practical.") }}</div>{% endif %}
+    {% for f in fields if f.audited_reason %}<div class="f" data-reason-for="{{ f.key }}" hidden><label for="reason">{{ _("Reason for this change (audited)") }}</label><input id="reason" name="reason" placeholder="{{ _('e.g. uniform supplier forms, sample check raised to 10 %') }}"></div>{% endfor %}
+    <div class="actions"><button class="btn pri">{{ _("Save to draft") }}</button></div>
+  </form>
+  {% endfor %}
+{% endif %}
+</div></div>
+{% endblock %}

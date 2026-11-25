@@ -30,7 +30,7 @@ split:
     - name: invoice-header
       expr: 'top matches /(RAČUN|INVOICE)\s+(št|no)\.?/i AND NOT top contains "nadaljevanje"'
       doctype: invoice             # optional: type given to documents starting here
-  auto_accept: true        # proof of concept: no operator screen yet
+  auto_accept: true        # off by default; on here until the operator separation screen exists
   drop_blank_pages: true
 
 output:

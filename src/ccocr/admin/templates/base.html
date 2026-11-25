@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ _("CC OCR admin") }}{% endblock %} · CC OCR</title>
+<link rel="stylesheet" href="/static/app.css?v={{ version }}">
+</head>
+<body>
+{% if user %}
+<div class="shell">
+<nav class="nav" aria-label="{{ _('Main') }}">
+  <a class="brand" href="/"><i>CC</i>CC OCR</a>
+  {% set is_admin = 'admin' in roles %}
+  <div class="sec">{{ _("Operate") }}</div>
+  <a class="i {{ 'on' if path == '/' }}" href="/">{{ _("Dashboard") }}</a>
+  <a class="i {{ 'on' if path.startswith('/review') }}" href="/review">{{ _("Separation") }}
+    {% if nav_counts.review %}<b>{{ nav_counts.review }}</b>{% endif %}</a>
+  <a class="i {{ 'on' if path.startswith('/jobs') }}" href="/jobs">{{ _("Jobs & logs") }}
+    {% if nav_counts.error %}<b class="bad">{{ nav_counts.error }}</b>{% endif %}</a>
+  {% if is_admin or 'operator' in roles %}<a class="i {{ 'on' if path.startswith('/sheets') }}" href="/sheets">{{ _("Separator sheets") }}</a>{% endif %}
+  {% if is_admin %}
+  <div class="sec">{{ _("Configure") }}</div>
+  <a class="i {{ 'on' if path.startswith('/profiles') }}" href="/profiles">{{ _("Profiles") }}</a>
+  <a class="i {{ 'on' if path.startswith('/folders') }}" href="/folders">{{ _("Folders") }}</a>
+  <a class="i {{ 'on' if path.startswith('/rules') }}" href="/rules">{{ _("Split rules") }}</a>
+  <a class="i {{ 'on' if path.startswith('/naming') }}" href="/naming">{{ _("Output & naming") }}</a>
+  <a class="i {{ 'on' if path.startswith('/types') }}" href="/types">{{ _("Document types") }}</a>
+  <a class="i {{ 'on' if path.startswith('/trust') }}" href="/trust">{{ _("Trust services") }}</a>
+  <div class="sec">{{ _("Administer") }}</div>
+  <a class="i {{ 'on' if path.startswith('/users') }}" href="/users">{{ _("Users & roles") }}</a>
+  <a class="i {{ 'on' if path.startswith('/audit') }}" href="/audit">{{ _("Audit log") }}</a>
+  <a class="i {{ 'on' if path.startswith('/system') }}" href="/system">{{ _("System") }}</a>
+  {% endif %}
+  <div class="foot">CC OCR {{ version }}</div>
+</nav>
+<div class="main">
+  <div class="bar">
+    <h1>{% block heading %}{% endblock %}</h1>
+    {% if trust_mode == 'none' %}<span class="pill bad">{{ _("Timestamps off") }}</span>
+    {% elif not trust_qualified %}<span class="pill warn">{{ _("Timestamps non-qualified") }}</span>
+    {% else %}<span class="pill ok">{{ _("Qualified timestamps") }}</span>{% endif %}
+    <span class="sp"></span>
+    <span class="who"><span class="av">{{ user['name'][:2]|upper }}</span>{{ user['name'] }} · {% for r in roles %}{{ _(ROLE_LABELS[r]) }}{{ ', ' if not loop.last }}{% endfor %}</span>
+    <a class="btn sm" href="/account/password">{{ _("Password") }}</a>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">{{ _("Sign out") }}</button></form>
+  </div>
+  <div class="work">
+    {% for kind, msg in flashes %}<div class="banner {{ kind }}" role="status">{{ msg }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+</div>
+{% else %}
+<div class="auth">{% for kind, msg in flashes %}<div class="banner {{ kind }}">{{ msg }}</div>{% endfor %}{% block auth %}{% endblock %}</div>
+{% endif %}
+<script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>

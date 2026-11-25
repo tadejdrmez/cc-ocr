@@ -1,0 +1,49 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("Trust services") }}{% endblock %}{% block heading %}{{ _("Trust services") }}{% endblock %}
+{% block content %}
+{% if t.mode == 'openssl-local' %}<div class="banner warn">{{ _("The built-in test TSA is active. Timestamps are marked non-qualified in reports and XML.") }}</div>
+{% elif t.mode == 'none' %}<div class="banner bad">{{ _("Timestamps are off.") }}</div>{% endif %}
+{% if last %}<div class="banner {{ 'ok' if last.ok else 'bad' }}">{{ _("Last test") }} ({{ last.at[:16]|replace('T',' ') }}, {{ last.mode }}): {{ last.text }}</div>{% endif %}
+<div class="row">
+<div class="col">
+<form class="card" method="post" action="/trust">{{ csrf_field() }}<div class="hd">{{ _("Timestamp · RFC 3161") }}</div><div class="bd col">
+  <div class="col" style="gap:6px">
+  {% for v, l, h in [('none',_('Off'),_('No timestamp (not recommended).')),('openssl-local',_('Built-in test TSA'),_('Inside the container, for tests only.')),('http',_('cc-ca TimeStamp service'),_('Any RFC 3161 service over HTTP(S); a qualified QTSP service later by settings only.'))] %}
+  <label class="check"><input type="radio" name="mode" value="{{ v }}" {{ 'checked' if t.mode == v }}> <span><b>{{ l }}</b><br><span class="muted small">{{ h }}</span></span></label>{% endfor %}</div>
+  <div class="fgrid">
+    <div class="f"><label for="url">{{ _("Service URL") }}</label><input id="url" name="url" value="{{ t.url }}" class="mono" placeholder="http://pki-test.comp-consulting.eu:8318/tsa/ocr"></div>
+    <div class="f"><label for="ca_file">{{ _("Trusted root (file in the container)") }}</label><input id="ca_file" name="ca_file" value="{{ t.ca_file }}" class="mono" placeholder="/data/.ccocr/trust/root.pem"><div class="help">{{ _("Download with: ccocr fetch-trust (the root is checked against its pinned fingerprint).") }}</div></div>
+    <div class="f"><label for="chain_file">{{ _("Intermediate certificates") }}</label><input id="chain_file" name="chain_file" value="{{ t.chain_file }}" class="mono" placeholder="/data/.ccocr/trust/chain.pem"></div>
+    <div class="f"><label for="timeout">{{ _("Timeout (seconds)") }}</label><input id="timeout" name="timeout" type="number" min="5" max="120" value="{{ t.timeout }}"></div>
+  </div>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="required" {{ 'checked' if t.required }}> {{ _("Never deliver a document without a verified timestamp") }}</label>
+    <label class="check"><input type="checkbox" name="embed_validation" {{ 'checked' if t.embed_validation }}> {{ _("Store OCSP/CRL of the TSA chain in the PDF") }}</label>
+    <label class="check"><input type="checkbox" name="qualified" {{ 'checked' if t.qualified }}> {{ _("Service is qualified (QTSP on an EU trusted list)") }}</label></div>
+  <div class="f"><label for="reason">{{ _("Reason (required when switching timestamps off)") }}</label><input id="reason" name="reason"></div>
+  <div class="actions"><button class="btn pri">{{ _("Save") }}</button></div></div></form>
+<form class="card" method="post" action="/trust/test">{{ csrf_field() }}<div class="hd">{{ _("Test the timestamp service") }}</div><div class="bd actions">
+  <span class="muted small">{{ _("Requests one token with the saved settings and checks the answer.") }}</span><button class="btn">{{ _("Test now") }}</button></div></form>
+</div>
+<div class="col">
+<form class="card" method="post" action="/trust/credentials">{{ csrf_field() }}<div class="hd">{{ _("TimeStamp service sign-in") }}</div><div class="bd col">
+  {% if env_override %}<div class="banner acc">{{ _("CCOCR_TSA_USER / CCOCR_TSA_PASSWORD are set in the container environment and take precedence.") }}</div>{% endif %}
+  <div class="fgrid">
+    <div class="f"><label for="tsa_user">{{ _("User") }}</label><input id="tsa_user" name="tsa_user" value="{{ tsa_user }}" autocomplete="off"></div>
+    <div class="f"><label for="tsa_password">{{ _("Password") }}</label><input id="tsa_password" name="tsa_password" type="password" autocomplete="new-password" placeholder="{{ _('stored, unchanged') if tsa_pw_set else _('not set') }}"><div class="help">{{ _("Stored in the secrets file, never shown again.") }}</div></div>
+  </div>
+  <div class="actions"><button class="btn pri">{{ _("Save credentials") }}</button>{% if tsa_pw_set %}<button class="btn danger" name="clear" value="1">{{ _("Remove password") }}</button>{% endif %}</div></div></form>
+<form class="card" method="post" action="/eseal">{{ csrf_field() }}<div class="hd">{{ _("Electronic seal · PAdES") }} <span class="pill n">{{ _("later phase · not active") }}</span></div><div class="bd col">
+  <div class="fgrid">
+    <div class="f"><label>{{ _("Seal identity") }}</label><input value="{{ e.identity }}" readonly class="mono"></div>
+    <div class="f"><label for="provider">{{ _("Provider") }}</label><input id="provider" name="provider" value="{{ e.provider }}"></div>
+    <div class="f"><label for="eurl">{{ _("Service URL") }}</label><input id="eurl" name="url" value="{{ e.url }}" class="mono" placeholder="https://…"></div>
+    <div class="f"><label for="pades_level">{{ _("PAdES level") }}</label><select id="pades_level" name="pades_level">{% for v in ['B-T','B-LT','B-LTA'] %}<option {{ 'selected' if e.pades_level == v }}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="f"><label for="appearance">{{ _("Appearance") }}</label><select id="appearance" name="appearance"><option value="invisible" {{ 'selected' if e.appearance == 'invisible' }}>{{ _("Invisible") }}</option><option value="visible" {{ 'selected' if e.appearance == 'visible' }}>{{ _("Visible") }}</option></select></div>
+    <div class="f"><label for="ereason">{{ _("Reason text") }}</label><input id="ereason" name="reason" value="{{ e.reason }}"></div>
+    <div class="f"><label for="location">{{ _("Location") }}</label><input id="location" name="location" value="{{ e.location }}"></div>
+  </div>
+  <div class="actions"><button class="btn">{{ _("Save e-seal settings") }}</button></div></div></form>
+</div>
+</div>
+{% endblock %}

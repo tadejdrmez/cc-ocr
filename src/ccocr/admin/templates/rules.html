@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Split rules") }}{% endblock %}{% block heading %}{{ _("Split rules") }}{% endblock %}
+{% block content %}
+<p class="muted" style="margin:0">{{ _("Rules belong to a profile, so they are versioned and published with it. Open a profile to edit and test its rules.") }}</p>
+{% for p in rows %}
+<div class="card"><div class="hd"><a href="/profiles/{{ p.name|urlencode }}?tab=rules">{{ p.name }}</a>
+  {% if p.draft %}<span class="pill acc">{{ _("draft") }}</span>{% endif %}
+  {% if not p.on %}<span class="pill warn">{{ _("text rules off") }}</span>{% endif %}<span class="sp"></span>
+  <a class="btn sm" href="/profiles/{{ p.name|urlencode }}?tab=rules">{{ _("Edit rules") }}</a></div>
+  <div class="scroll"><table class="t"><tr><th>#</th><th>{{ _("Rule") }}</th><th>{{ _("Expression") }}</th><th>{{ _("Type") }}</th></tr>
+  {% for r in p.rules %}<tr><td class="muted">{{ loop.index }}</td><td><b>{{ r.name }}</b></td><td class="mono">{{ r.expr }}</td><td>{{ r.doctype or '–' }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">{{ _("No rules.") }}</td></tr>{% endfor %}</table></div></div>
+{% else %}<div class="muted">{{ _("No profiles yet.") }}</div>{% endfor %}
+{% endblock %}

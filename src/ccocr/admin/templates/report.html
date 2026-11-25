@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Job report") }}{% endblock %}{% block heading %}{{ _("Job report") }}{% endblock %}
+{% block content %}
+<div class="actions"><a class="btn" href="/jobs">← {{ _("Jobs") }}</a><span class="mono muted">{{ file }}</span></div>
+<div class="card"><div class="hd">{{ _("Summary") }}</div><div class="scroll"><table class="t">
+  {% if rep.job_id %}<tr><td>{{ _("Job") }}</td><td class="mono">{{ rep.job_id }}</td></tr>{% endif %}
+  {% if rep.batch %}<tr><td>{{ _("Batch") }}</td><td class="mono">{{ rep.batch.file }} · {{ rep.batch.pages }} {{ _("pages") }} · sha256 {{ (rep.batch.sha256 or '')[:12] }}…</td></tr>{% endif %}
+  <tr><td>{{ _("Profile") }}</td><td>{{ rep.profile }}{% if rep.profile_version %} · v{{ rep.profile_version }}{% endif %}</td></tr>
+  <tr><td>{{ _("Time") }}</td><td>{{ rep.started }} → {{ rep.finished }}</td></tr>
+  <tr><td>{{ _("Documents") }}</td><td>{% for d in rep.documents %}<div><span class="mono">{{ d.file }}</span> <span class="muted">p. {{ d.batch_pages }} · {{ d.metadata.doctype if d.metadata }}</span>
+    {% if d.timestamp and d.timestamp.verified %}<span class="pill ok">{{ _("timestamp verified") }}</span>{% elif d.timestamp and d.timestamp.error %}<span class="pill bad">{{ _("timestamp failed") }}</span>{% endif %}
+    {% for fl in d.review_flags %}<span class="pill warn">{{ fl }}</span>{% endfor %}</div>{% endfor %}</td></tr>
+  {% if rep.split %}<tr><td>{{ _("Split") }}</td><td>{{ rep.split.proposals|length }} {{ _("proposal(s)") }} · {{ _("auto-accepted") if rep.split.auto_accepted else _("confirmed by operator") }}</td></tr>{% endif %}
+  {% if rep.warnings %}<tr><td>{{ _("Warnings") }}</td><td>{% for w in rep.warnings %}<div class="pill warn">{{ w }}</div> {% endfor %}</td></tr>{% endif %}
+</table></div></div>
+<div class="card"><div class="hd">{{ _("Full report (JSON)") }}</div><div class="bd"><pre class="code">{{ raw }}</pre></div></div>
+{% endblock %}

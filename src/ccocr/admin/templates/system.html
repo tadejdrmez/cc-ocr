@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("System") }}{% endblock %}{% block heading %}{{ _("System") }}{% endblock %}
+{% block content %}
+<form class="card" method="post" action="/system">{{ csrf_field() }}<div class="hd">{{ _("Settings") }}</div><div class="bd col">
+  <div class="fgrid">
+    <div class="f"><label for="language">{{ _("Console language") }}</label><select id="language" name="language">{% for k, v in LANGUAGES.items() %}<option value="{{ k }}" {{ 'selected' if s.language == k }}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="f"><label for="timezone">{{ _("Time zone") }}</label><input id="timezone" name="timezone" value="{{ s.timezone }}"></div>
+    <div class="f"><label for="session_minutes">{{ _("Sign out after idle (minutes)") }}</label><input id="session_minutes" name="session_minutes" type="number" min="5" max="480" value="{{ s.session_minutes }}"></div>
+    <div class="f"><label for="password_min_length">{{ _("Minimum password length") }}</label><input id="password_min_length" name="password_min_length" type="number" min="8" max="64" value="{{ s.password_min_length }}"></div>
+  </div>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="separation_of_duties" {{ 'checked' if s.separation_of_duties }}> {{ _("Separation of duties: administrators cannot also be operators or reviewers") }}</label>
+    <label class="check"><input type="checkbox" name="four_eyes" {{ 'checked' if s.four_eyes }}> {{ _("Four-eyes: a different user confirms than the one who edited (used by the validation screen)") }}</label></div>
+  <div class="actions"><button class="btn pri">{{ _("Save") }}</button></div></div></form>
+<div class="card"><div class="hd">{{ _("Backup and transfer") }}</div><div class="bd col">
+  <p class="muted small" style="margin:0">{{ _("Exports all settings, published profiles and folders as one YAML file (no passwords). Import single profiles under Profiles.") }}</p>
+  <div class="actions"><a class="btn" href="/system/export">{{ _("Export configuration") }}</a></div></div></div>
+<div class="card"><div class="hd">{{ _("Installation") }}</div><div class="scroll"><table class="t">
+  <tr><td>{{ _("Version") }}</td><td class="mono">CC OCR {{ version }}</td></tr>
+  <tr><td>{{ _("Data folder") }}</td><td class="mono">{{ data_dir }}</td></tr>
+  <tr><td>{{ _("Generated configuration for the watcher") }}</td><td class="mono">{{ config_dir }}/watch.yaml</td></tr>
+  <tr><td>{{ _("Installed OCR languages") }}</td><td class="mono">{{ langs|join(' ') }}</td></tr>
+</table></div></div>
+{% endblock %}

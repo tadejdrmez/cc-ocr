@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("Separator sheets") }}{% endblock %}{% block heading %}{{ _("Separator sheets") }}{% endblock %}
+{% block content %}
+<div class="row">
+<form class="card" method="post" action="/sheets/pdf">{{ csrf_field() }}<div class="hd">{{ _("Print separator sheets") }}</div><div class="bd col">
+  <div class="fgrid">
+    <div class="f"><label for="doctype">{{ _("Document type") }}</label><select id="doctype" name="doctype">{% for v, l in doctypes %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="f"><label for="classification">{{ _("Classification (optional)") }}</label><input id="classification" name="classification" list="cls-list"><datalist id="cls-list">{% for c in classes %}<option value="{{ c.code }}">{{ c.label }}</option>{% endfor %}</datalist></div>
+    <div class="f"><label for="profile">{{ _("Profile (optional)") }}</label><select id="profile" name="profile"><option value="">{{ _("Folder's profile") }}</option>{% for p in profiles %}<option>{{ p }}</option>{% endfor %}</select></div>
+    <div class="f"><label for="label">{{ _("Large text on the sheet") }}</label><input id="label" name="label" placeholder="INVOICE"></div>
+    <div class="f"><label for="copies">{{ _("Copies") }}</label><input id="copies" name="copies" type="number" min="1" max="200" value="10"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="save_preset"> {{ _("Save as preset") }}</label>
+  <div class="help muted small">{{ _("The QR code reads CCOCR:1;SEP;DT=…;CLS=…;PROFILE=…. Unknown codes force a review.") }}</div>
+  <div class="actions"><button class="btn pri">{{ _("Download PDF") }}</button></div></div></form>
+<div class="card"><div class="hd">{{ _("Presets") }}</div><div class="scroll"><table class="t">
+{% for p in presets %}<tr><td><b>{{ p.label or p.doctype|upper }}</b><div class="mono small muted">{{ p.code }}</div></td>
+<td class="actions"><form method="post" action="/sheets/pdf">{{ csrf_field() }}<input type="hidden" name="doctype" value="{{ p.doctype }}"><input type="hidden" name="classification" value="{{ p.classification }}"><input type="hidden" name="profile" value="{{ p.profile }}"><input type="hidden" name="label" value="{{ p.label }}"><input type="number" name="copies" value="10" min="1" max="200" style="width:70px"> <button class="btn sm">{{ _("PDF") }}</button></form>
+<form method="post" action="/sheets/preset/delete">{{ csrf_field() }}<input type="hidden" name="code" value="{{ p.code }}"><button class="btn sm danger">{{ _("Remove") }}</button></form></td></tr>
+{% else %}<tr><td class="muted">{{ _("No presets yet.") }}</td></tr>{% endfor %}</table></div></div>
+</div>
+{% endblock %}
