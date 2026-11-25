@@ -32,9 +32,16 @@ def cmd_process(a: argparse.Namespace) -> int:
 
 
 def cmd_watch(a: argparse.Namespace) -> int:
+    import time
+
     from .watcher import Watcher, load_watch_config
 
-    Watcher(load_watch_config(Path(a.config)), log=_log).run(once=a.once)
+    path = Path(a.config)
+    if not path.exists() and not a.once:
+        _log(f"waiting for {path} (written when the admin console publishes the configuration)")
+        while not path.exists():
+            time.sleep(10)
+    Watcher(load_watch_config(path), log=_log).run(once=a.once)
     return 0
 
 
@@ -143,6 +150,13 @@ def cmd_fetch_trust(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_admin(a: argparse.Namespace) -> int:
+    from .admin.app import serve
+
+    serve(Path(a.data), a.host, a.port, seed_config=Path(a.seed_config) if a.seed_config else None)
+    return 0
+
+
 def cmd_init_tsa(a: argparse.Namespace) -> int:
     from .timestamp import init_test_tsa
 
@@ -208,6 +222,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("pdf")
     s.add_argument("--stdout", action="store_true")
     s.set_defaults(fn=cmd_extract_xml)
+
+    s = sub.add_parser("admin", help="run the admin web console")
+    s.add_argument("--data", default="/data", help="data folder (state, generated config)")
+    s.add_argument("--host", default="0.0.0.0")
+    s.add_argument("--port", type=int, default=8080)
+    s.add_argument("--seed-config", default="/app/config/watch.yaml", help="watch config imported on first start")
+    s.set_defaults(fn=cmd_admin)
 
     s = sub.add_parser("init-test-tsa", help="create a test timestamp authority (not for production)")
     s.add_argument("dir")

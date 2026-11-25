@@ -37,12 +37,18 @@ jobs:
           docker run --rm -v "$PWD/data:/data" cc-ocr:${{ github.sha }} watch --config /app/config/watch.yaml --once
           test "$(ls data/out/*.pdf | wc -l)" -eq 3
           docker run --rm -v "$PWD/data:/data" cc-ocr:${{ github.sha }} verify /data/out --tsa-dir /data/.ccocr/test-tsa
+      - name: Admin console smoke test
+        run: |
+          docker run -d --name admin -p 8080:8080 -v "$PWD/data:/data" cc-ocr:${{ github.sha }} admin --data /data
+          for i in $(seq 1 30); do curl -fs http://localhost:8080/healthz && break; sleep 1; done
+          curl -fs http://localhost:8080/setup | grep -q "Create the first administrator"
+          docker logs admin 2>&1 | grep -q "setup code"
       - name: Export image for offline install
         if: github.ref == 'refs/heads/main'
-        run: docker tag cc-ocr:${{ github.sha }} cc-ocr:0.1.0 && docker save cc-ocr:0.1.0 | gzip > cc-ocr-0.1.0.tar.gz
+        run: docker tag cc-ocr:${{ github.sha }} cc-ocr:0.2.0 && docker save cc-ocr:0.2.0 | gzip > cc-ocr-0.2.0.tar.gz
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
           name: cc-ocr-image
-          path: cc-ocr-0.1.0.tar.gz
+          path: cc-ocr-0.2.0.tar.gz
           retention-days: 30

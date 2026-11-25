@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Output & naming") }}{% endblock %}{% block heading %}{{ _("Output & naming") }}{% endblock %}
+{% block content %}
+<p class="muted" style="margin:0">{{ _("Output package, metadata and the file name pattern are set per profile. Output folders are set per watched folder.") }}</p>
+<div class="card"><div class="scroll"><table class="t"><tr><th>{{ _("Profile") }}</th><th>{{ _("Package") }}</th><th>{{ _("Metadata") }}</th><th>{{ _("File name pattern") }}</th><th>{{ _("Output folders") }}</th><th></th></tr>
+{% for r in rows %}<tr><td><b>{{ r.name }}</b></td>
+<td>{{ _("Single PDF/A-3") if r.out.package == 'single' else _("PDF/A-2 + sidecar files") }}</td>
+<td>{{ r.out.metadata|join(', ') }}</td><td class="mono">{{ r.out.naming }}</td>
+<td class="mono small">{% for f in r.folders %}<div><a href="/folders/{{ f.id }}">{{ f.out }}</a></div>{% else %}–{% endfor %}</td>
+<td><a class="btn sm" href="/profiles/{{ r.name|urlencode }}?tab=output">{{ _("Edit") }}</a></td></tr>{% endfor %}</table></div></div>
+<div class="card"><div class="hd">{{ _("Rules that always apply") }}</div><div class="bd small">
+<ul style="margin:0;padding-left:1.1rem">
+<li>{{ _("Letters with diacritics (š, č, ž, đ, ć) are kept; names are Unicode NFC (decision D4).") }}</li>
+<li>{{ _("Characters unsafe on Windows (\\ / : * ? \" < > |) are replaced with '-'; reserved names such as CON or NUL are avoided.") }}</li>
+<li>{{ _("Existing files are never overwritten. Results are written under a temporary name and renamed when complete.") }}</li>
+</ul></div></div>
+{% endblock %}

@@ -109,6 +109,7 @@ def process_batch(
     job_id: str | None = None,
     batch_name: str | None = None,
     workers: int | None = None,
+    confirmed_by: str | None = None,
     log: Log = lambda m: None,
 ) -> dict[str, Any]:
     started = datetime.now(timezone.utc).astimezone()
@@ -126,7 +127,7 @@ def process_batch(
         results = list(pool.map(lambda sp: _analyse_page(sp, profile, len(pages)), pages))
 
     known = {str(d).lower() for d in profile.raw.get("document_types", []) or []} or None
-    plan = plan_split([r.facts for r in results], profile["split"], profile.rules, known)
+    plan = plan_split([r.facts for r in results], {**profile["split"], "auto_accept": confirmed_by is None}, profile.rules, known)
     log(f"[{job_id}] {len(plan.documents)} document(s) from {len(plan.proposals)} split proposal(s)")
 
     versions = {
@@ -144,7 +145,9 @@ def process_batch(
     if pdfa == "auto" or (single and want_xml and pdfa != "pdfa-3"):
         # Embedding the metadata XML needs PDF/A-3 (associated files).
         pdfa = "pdfa-3" if single else "pdfa-2"
-    auto = bool(profile["split"].get("auto_accept", True))
+    # Without an operator decision (confirmed_by) the proposals are applied as they are,
+    # and every report and XML says so ("auto-accepted").
+    auto = confirmed_by is None
     documents_report: list[dict[str, Any]] = []
     warnings: list[str] = []
 
@@ -219,7 +222,7 @@ def process_batch(
                         # the PDF's own hash; the document timestamp protects both instead.
                         pdf_sha256=None if single else sha256_bytes(tmp_pdf.read_bytes()),
                         page_count=len(asm), profile=profile.name,
-                        validation_status="auto-accepted" if auto else "confirmed", validated_by="" if auto else "operator",
+                        validation_status="auto-accepted" if auto else "confirmed", validated_by="" if auto else confirmed_by,
                         validated_at=datetime.now(timezone.utc).astimezone(), doctype=meta["doctype"],
                         classification=meta["classification"], batch_name=batch_name, batch_sha256=batch_sha,
                         batch_pages=_page_ranges(doc.pages), fields=fields,
@@ -307,7 +310,7 @@ def process_batch(
                     "timestamp": ts_report,
                     "integrity": integrity,
                     "review_flags": flags,
-                    "validation": "auto-accepted (proof of concept, no operator step yet)" if auto else "pending",
+                    "validation": "auto-accepted" if auto else f"confirmed by {confirmed_by}",
                 }
             )
             log(f"[{job_id}]   {pdf_path.name}  pages {_page_ranges(doc.pages)}  {'REVIEW: ' + '; '.join(flags) if flags else 'ok'}")
@@ -324,6 +327,7 @@ def process_batch(
         "job_id": job_id,
         "batch": {"file": batch_name, "sha256": batch_sha, "pages": len(pages)},
         "profile": profile.name,
+        "profile_version": profile.raw.get("config_version"),  # set when the admin console published it
         "versions": versions,
         "started": started.isoformat(timespec="seconds"),
         "finished": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),

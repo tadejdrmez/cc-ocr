@@ -1,21 +1,34 @@
 # Runs on a Windows PC with Docker Desktop or on a Linux server (e.g. the CC_archive server).
 #   docker compose up -d
 # Scans dropped into ./data/in come out in ./data/out.
+# Admin console: http://<host>:8080  (first start: the setup code is in `docker compose logs ccocr-admin`)
 services:
   ccocr:
-    image: cc-ocr:0.1.0
+    image: cc-ocr:0.2.0
     build: .
     restart: unless-stopped
+    # Reads the configuration published by the admin console and reloads it when it changes.
+    command: ["watch", "--config", "/data/.ccocr/config/watch.yaml"]
     volumes:
       - ${CCOCR_DATA:-./data}:/data
-      # - ./my-config:/app/config:ro      # own watch.yaml
-      # - ./my-profiles:/app/profiles:ro  # own profiles
     # On the PC that hosts the CC Test CA (no NAT loopback), point its name at the host:
     # extra_hosts:
     #   - "pki-test.comp-consulting.eu:host-gateway"
     environment:
       - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
-      # Profile for the CC Test CA TimeStamp service: /app/profiles/cc-test-ca.yaml
-      # (set it in your watch.yaml). If the TSA uses basic auth:
+      # TSA credentials can also be set here; otherwise enter them in the admin console (Trust services).
       # - CCOCR_TSA_USER=...
       # - CCOCR_TSA_PASSWORD=...
+
+  ccocr-admin:
+    image: cc-ocr:0.2.0
+    restart: unless-stopped
+    # On first start the console imports this watch config and its profiles (mount your own to import it).
+    command: ["admin", "--data", "/data", "--seed-config", "/app/config/watch.yaml"]
+    ports:
+      - "${CCOCR_ADMIN_PORT:-8080}:8080"
+    volumes:
+      - ${CCOCR_DATA:-./data}:/data
+      # - ./my-config:/app/config:ro      # own watch.yaml + profiles to import on first start
+    environment:
+      - CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa

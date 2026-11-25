@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Jobs & logs") }}{% endblock %}{% block heading %}{{ _("Jobs & logs") }}{% endblock %}
+{% block content %}
+{% if review %}<div class="card"><div class="hd">{{ _("Waiting for separation") }} <span class="pill warn">{{ review|length }}</span></div>
+  <div class="bd muted small">{{ _("These batches come from profiles with automatic acceptance off. They wait in review/ until the operator separation screen confirms them (next increment).") }}</div>
+  <div class="scroll"><table class="t"><tr><th>{{ _("Batch") }}</th><th>{{ _("Job") }}</th><th>{{ _("Since") }}</th></tr>
+  {% for r in review %}<tr><td class="mono">{{ r.name }}</td><td class="mono muted">{{ r.job }}</td><td class="muted">{{ r.at }}</td></tr>{% endfor %}</table></div></div>{% endif %}
+<div class="card"><div class="hd">{{ _("Job reports") }}</div>
+  <div class="scroll"><table class="t"><tr><th>{{ _("Report") }}</th><th>{{ _("Folder") }}</th><th>{{ _("Written") }}</th></tr>
+  {% for r in reports %}<tr><td><a class="mono" href="/jobs/report?folder={{ r.folder }}&file={{ r.file|urlencode }}">{{ r.file }}</a></td><td>{{ r.folder_name }}</td><td class="muted">{{ r.at }}</td></tr>
+  {% else %}<tr><td colspan="3" class="muted">{{ _("No job reports yet.") }}</td></tr>{% endfor %}</table></div></div>
+<div class="card"><div class="hd">{{ _("Errors") }} {% if errors %}<span class="pill bad">{{ errors|length }}</span>{% endif %}</div>
+  <div class="bd col">{% for e in errors %}<details><summary><span class="mono">{{ e.name }}</span> <span class="muted small">{{ e.at }}</span></summary><pre class="code">{{ e.text }}</pre></details>
+  {% else %}<span class="muted">{{ _("No errors.") }}</span>{% endfor %}</div></div>
+{% endblock %}

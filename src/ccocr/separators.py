@@ -110,7 +110,7 @@ def plan_split(
     known_doctypes: set[str] | None = None,
 ) -> SplitPlan:
     enabled = set(split_cfg.get("proposals") or [])
-    auto = bool(split_cfg.get("auto_accept", True))
+    auto = bool(split_cfg.get("auto_accept", False))
     drop_blank = bool(split_cfg.get("drop_blank_pages", True))
     fixed = split_cfg.get("fixed_count")
 

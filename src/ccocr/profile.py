@@ -45,9 +45,10 @@ DEFAULTS: dict[str, Any] = {
         "zone": 0.25,
         "fixed_count": None,
         "rules": [],
-        # Proof of concept only: there is no operator screen yet, so proposals
-        # are accepted automatically and the report marks them as such.
-        "auto_accept": True,
+        # Split proposals are confirmed by an operator (spec 3.2). A profile may switch
+        # auto-accept on (decided 25 Nov 2026: off by default, available per profile,
+        # justified and audited in the admin console); the report then says so.
+        "auto_accept": False,
         "drop_blank_pages": True,
     },
     "output": {

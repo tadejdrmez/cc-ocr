@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("First start") }}{% endblock %}
+{% block auth %}
+<form class="card" method="post" action="/setup">{{ csrf_field() }}
+  <div class="hd">{{ _("Create the first administrator") }}</div>
+  <div class="bd col">
+    <p class="muted small" style="margin:0">{{ _("The setup code is printed in the container log of the admin service and stored in .ccocr/setup-token in the data folder.") }}</p>
+    {% if error %}<div class="banner bad">{{ error }}</div>{% endif %}
+    <div class="f"><label for="code">{{ _("Setup code") }}</label><input id="code" name="code" autocomplete="off" required></div>
+    <div class="f"><label for="name">{{ _("Your name") }}</label><input id="name" name="name" value="{{ form.name if form }}" required></div>
+    <div class="f"><label for="login">{{ _("Login") }}</label><input id="login" name="login" value="{{ form.login if form }}" autocomplete="username" required></div>
+    <div class="f"><label for="password">{{ _("Password") }}</label><input id="password" name="password" type="password" autocomplete="new-password" required><div class="help">{{ _("At least") }} {{ min_len }} {{ _("characters, letters and digits or symbols.") }}</div></div>
+    <div class="f"><label for="password2">{{ _("Repeat password") }}</label><input id="password2" name="password2" type="password" autocomplete="new-password" required></div>
+    <button class="btn pri">{{ _("Create administrator") }}</button>
+  </div>
+</form>
+{% endblock %}

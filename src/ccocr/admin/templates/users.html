@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("Users & roles") }}{% endblock %}{% block heading %}{{ _("Users & roles") }}{% endblock %}
+{% block content %}
+{% if temp %}<div class="banner acc">{{ _("Temporary password for") }} <b>{{ temp.login }}</b>: <span class="temp">{{ temp.password }}</span> {{ _("Give it to the user; it is shown only now. The user must change it at first sign-in.") }}</div>{% endif %}
+<div class="card"><div class="hd">{{ _("Users") }} <span class="muted small" style="font-weight:400">{{ _("Local accounts. LDAP / Active Directory follows in version 2.") }}</span></div>
+<div class="scroll"><table class="t"><tr><th>{{ _("Login") }}</th><th>{{ _("Name") }}</th><th>{{ _("Roles") }}</th><th>{{ _("Active") }}</th><th>{{ _("Last sign-in") }}</th><th></th></tr>
+{% for u in users %}<tr><td class="mono">{{ u['login'] }}</td>
+<td colspan="3"><form class="actions" method="post" action="/users/{{ u['id'] }}" id="uf{{ u['id'] }}">{{ csrf_field() }}
+  <input name="name" value="{{ u['name'] }}" style="max-width:200px">
+  {% for r in ['admin','operator','reviewer'] %}<label class="check small"><input type="checkbox" name="roles" value="{{ r }}" {{ 'checked' if r in u['roles'].split(',') }}> {{ _(ROLE_LABELS[r]) }}</label>{% endfor %}
+  <label class="check small"><input type="checkbox" name="active" {{ 'checked' if u['active'] }}> {{ _("active") }}</label>
+  <button class="btn sm" name="op" value="save">{{ _("Save") }}</button></form></td>
+<td class="muted small">{{ (u['last_login'] or '–')[:16]|replace('T',' ') }}{% if u['must_change'] %}<br><span class="pill warn">{{ _("must change password") }}</span>{% endif %}</td>
+<td><button class="btn sm" form="uf{{ u['id'] }}" name="op" value="reset" data-confirm="{{ _('Click again to reset') }}">{{ _("Reset password") }}</button></td></tr>{% endfor %}</table></div></div>
+<div class="row">
+<form class="card" method="post" action="/users/new">{{ csrf_field() }}<div class="hd">{{ _("Add user") }}</div><div class="bd col">
+  <div class="fgrid"><div class="f"><label for="login">{{ _("Login") }}</label><input id="login" name="login" required class="mono"></div>
+  <div class="f"><label for="nname">{{ _("Name") }}</label><input id="nname" name="name" required></div></div>
+  <div class="checks">{% for r in ['admin','operator','reviewer'] %}<label class="check"><input type="checkbox" name="roles" value="{{ r }}" {{ 'checked' if r == 'operator' }}> {{ _(ROLE_LABELS[r]) }}</label>{% endfor %}</div>
+  <div class="help muted small">{{ _("A temporary password is generated and shown once.") }}</div>
+  <div class="actions"><button class="btn pri">{{ _("Add user") }}</button></div></div></form>
+<div class="card"><div class="hd">{{ _("What each role may do") }}</div><div class="scroll"><table class="t">
+<tr><th></th><th>{{ _("Admin") }}</th><th>{{ _("Operator") }}</th><th>{{ _("Reviewer") }}</th></tr>
+<tr><td>{{ _("Dashboard, jobs and job reports") }}</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>{{ _("Print separator sheets") }}</td><td>✓</td><td>✓</td><td>–</td></tr>
+<tr><td>{{ _("Separate and validate batches (next increment)") }}</td><td>–</td><td>✓</td><td>–</td></tr>
+<tr><td>{{ _("Sample checks (later phase)") }}</td><td>–</td><td>–</td><td>✓</td></tr>
+<tr><td>{{ _("Profiles, folders, rules, trust services, users, audit") }}</td><td>✓</td><td>–</td><td>–</td></tr>
+</table></div><div class="bd muted small">{{ _("Separation of duties") }}: {{ _("on") if system.separation_of_duties else _("off") }} ({{ _("change under System") }}).</div></div>
+</div>
+{% endblock %}

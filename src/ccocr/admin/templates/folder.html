@@ -1,0 +1,40 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ f.name or _("New folder") }}{% endblock %}{% block heading %}{{ _("Folder") }} · {{ f.name or _("new") }}{% endblock %}
+{% block content %}
+<div class="actions"><a class="btn" href="/folders">← {{ _("Folders") }}</a>
+{% if f.id %}<button type="button" class="btn" data-folder-test="/folders/{{ f.id }}/test">{{ _("Test input and output") }}</button>{% endif %}</div>
+<div id="folder-test-out"></div>
+{% if error %}<div class="banner bad">{{ error }}</div>{% endif %}
+{% if not profiles %}<div class="banner warn">{{ _("Publish a profile first; a folder needs a published profile.") }} <a href="/profiles">{{ _("Profiles") }}</a></div>{% endif %}
+<form method="post" action="/folders/save" class="col">{{ csrf_field() }}<input type="hidden" name="id" value="{{ f.id or '' }}">
+<div class="card"><div class="hd">{{ _("General") }}</div><div class="bd fgrid">
+  <div class="f"><label for="name">{{ _("Name") }}</label><input id="name" name="name" value="{{ f.name }}" required placeholder="Bled · invoices"></div>
+  <div class="f"><label for="profile">{{ _("Profile") }}</label><select id="profile" name="profile" required>{% for p in profiles %}<option {{ 'selected' if p == f.profile }}>{{ p }}</option>{% endfor %}</select><div class="help">{{ _("Only published profiles are listed.") }}</div></div>
+  <div class="f"><label for="access">{{ _("How the folders are reached") }}</label><select id="access" name="access">
+    {% for v, l in [('local',_('Local disk or volume')),('smb',_('SMB share (mounted on the host)')),('smb-tunnel',_('SMB share through a secure tunnel')),('sync-agent',_('Windows sync agent (later)'))] %}<option value="{{ v }}" {{ 'selected' if f.access == v }}>{{ l }}</option>{% endfor %}</select>
+    <div class="help">{{ _("Shares are mounted into the container by the host; enter the path inside the container.") }}</div></div>
+  <div class="f" style="justify-content:flex-end"><label class="check" style="color:var(--ink)"><input type="checkbox" name="paused" {{ 'checked' if f.paused }}> {{ _("Paused (files stay in the input folder)") }}</label></div>
+</div></div>
+<div class="row">
+<div class="card"><div class="hd">{{ _("Input") }}</div><div class="bd fgrid">
+  <div class="f"><label for="in">{{ _("Input folder") }}</label><input id="in" name="in" value="{{ f['in'] }}" class="mono" required><div class="help">{{ _("processing/, archive/, error/ and review/ are kept in the data folder.") }}</div></div>
+  <div class="f"><label>{{ _("Accepted file types") }}</label><div class="checks">{% for t in types %}<label class="check"><input type="checkbox" name="file_types" value="{{ t }}" {{ 'checked' if t in f.file_types }}> {{ t }}</label>{% endfor %}</div><div class="help">{{ _("None ticked = all supported types.") }}</div></div>
+  <div class="f"><label for="max_mb">{{ _("Maximum file size (MB)") }}</label><input id="max_mb" name="max_mb" type="number" min="0" step="1" value="{{ f.max_mb|int }}"><div class="help">{{ _("0 = no limit. Larger files go to error/.") }}</div></div>
+  <div class="f"><label for="stable_polls">{{ _("Stable polls") }}</label><input id="stable_polls" name="stable_polls" type="number" min="1" max="20" value="{{ f.stable_polls if f.stable_polls is not none else '' }}" placeholder="{{ watch.stable_polls }}"><div class="help">{{ _("Empty = global value.") }}</div></div>
+  <div class="f"><label for="marker_suffix">{{ _("Marker file suffix") }}</label><input id="marker_suffix" name="marker_suffix" value="{{ f.marker_suffix or '' }}" placeholder="{{ watch.marker_suffix }}" class="mono"></div>
+  <div class="f"><label for="require_marker">{{ _("Require marker file") }}</label><select id="require_marker" name="require_marker">
+    <option value="" {{ 'selected' if f.require_marker is none }}>{{ _("Global setting") }}</option><option value="yes" {{ 'selected' if f.require_marker == true }}>{{ _("Yes") }}</option><option value="no" {{ 'selected' if f.require_marker == false }}>{{ _("No") }}</option></select></div>
+  <div class="f"><label for="retries">{{ _("Attempts before error/") }}</label><input id="retries" name="retries" type="number" min="1" max="20" value="{{ f.retries if f.retries is not none else '' }}" placeholder="{{ watch.retries }}"></div>
+  <div class="f"><label for="duplicate">{{ _("Same file again (same SHA-256)") }}</label><select id="duplicate" name="duplicate">
+    {% for v, l in [('error',_('Move to error/ with a note')),('skip',_('Archive it, do not process')),('reprocess',_('Process again'))] %}<option value="{{ v }}" {{ 'selected' if f.duplicate == v }}>{{ l }}</option>{% endfor %}</select></div>
+</div></div>
+<div class="card"><div class="hd">{{ _("Output") }}</div><div class="bd fgrid">
+  <div class="f"><label for="out">{{ _("Output folder") }}</label><input id="out" name="out" value="{{ f.out }}" class="mono" required><div class="help">{{ _("Can be on a different share than the input. Job reports go to _reports/ inside it.") }}</div></div>
+  <div class="f"><label>{{ _("Files per document") }}</label><input readonly value="{{ _('Set by the profile (Output & naming)') }}"></div>
+  <div class="f"><label>{{ _("Write mode") }}</label><input readonly value="{{ _('Temporary name, then rename; never overwrite') }}"></div>
+</div></div>
+</div>
+<div class="actions"><button class="btn pri" {{ 'disabled' if not profiles }}>{{ _("Save folder") }}</button></div>
+</form>
+{% if f.id %}<form method="post" action="/folders/{{ f.id }}/delete">{{ csrf_field() }}<button class="btn danger" data-confirm="{{ _('Click again to stop watching') }}">{{ _("Stop watching this folder") }}</button> <span class="muted small">{{ _("No files are deleted.") }}</span></form>{% endif %}
+{% endblock %}

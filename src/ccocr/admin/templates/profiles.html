@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("Profiles") }}{% endblock %}{% block heading %}{{ _("Profiles") }}{% endblock %}
+{% block content %}
+<div class="card"><div class="hd">{{ _("Processing profiles") }}</div>
+<div class="scroll"><table class="t"><tr><th>{{ _("Profile") }}</th><th>{{ _("Published") }}</th><th>{{ _("Draft") }}</th><th>{{ _("Languages (Latin / Cyrillic)") }}</th><th>{{ _("Split") }}</th><th>{{ _("Used by folders") }}</th></tr>
+{% for r in rows %}<tr><td><a href="/profiles/{{ r.name|urlencode }}"><b>{{ r.name }}</b></a><div class="muted small">{{ r.data.description or '' }}</div></td>
+<td>{% if r.published %}<span class="pill ok">v{{ r.published }}</span>{% else %}<span class="pill n">{{ _("never") }}</span>{% endif %}</td>
+<td>{% if r.draft %}<span class="pill acc">v{{ r.draft }}</span>{% endif %}</td>
+<td class="mono small">{{ r.data.ocr.latin|join('+') }} / {{ r.data.ocr.cyrillic|join('+') }}</td>
+<td>{% if r.data.split.auto_accept %}<span class="pill warn">{{ _("auto-accept") }}</span>{% else %}<span class="pill n">{{ _("operator confirms") }}</span>{% endif %}</td>
+<td class="small">{{ r.used|join(', ') or '–' }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">{{ _("No profiles yet.") }}</td></tr>{% endfor %}</table></div></div>
+<div class="row">
+<form class="card" method="post" action="/profiles/new">{{ csrf_field() }}<div class="hd">{{ _("New profile") }}</div><div class="bd col">
+  <div class="f"><label for="name">{{ _("Name") }}</label><input id="name" name="name" class="mono" pattern="[A-Za-z0-9._-]+" required placeholder="invoices-bled"><div class="help">{{ _("Letters, digits, '-', '_' and '.'. Cannot be changed later.") }}</div></div>
+  <div class="f"><label for="copy_from">{{ _("Start from") }}</label><select id="copy_from" name="copy_from"><option value="">{{ _("Default settings") }}</option>{% for r in rows %}<option value="{{ r.name }}">{{ _("Copy of") }} {{ r.name }}</option>{% endfor %}</select></div>
+  <div class="actions"><button class="btn pri">{{ _("Create draft") }}</button></div></div></form>
+<form class="card" method="post" action="/profiles/import" enctype="multipart/form-data">{{ csrf_field() }}<div class="hd">{{ _("Import profile YAML") }}</div><div class="bd col">
+  <div class="f"><label for="file">{{ _("YAML file") }}</label><input id="file" type="file" name="file" accept=".yaml,.yml" required><div class="help">{{ _("Imported as a draft and validated. Timestamp settings in the file are ignored; they are set under Trust services.") }}</div></div>
+  <div class="actions"><button class="btn">{{ _("Import") }}</button></div></div></form>
+</div>
+{% endblock %}

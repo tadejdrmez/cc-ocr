@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# CC OCR - scanned-document importer (proof of concept, increment 0)
+# CC OCR - scanned-document importer and admin web console
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -34,6 +34,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 
 USER ccocr
 VOLUME ["/data"]
+EXPOSE 8080
 ENV CCOCR_TEST_TSA_DIR=/data/.ccocr/test-tsa
 ENTRYPOINT ["tini", "--", "entrypoint.sh"]
 CMD ["watch", "--config", "/app/config/watch.yaml"]

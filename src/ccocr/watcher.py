@@ -38,6 +38,16 @@ class WatchedFolder:
     inbox: Path
     out: Path
     profile: Profile
+    name: str = ""
+    paused: bool = False
+    # Per-folder overrides; None = use the global value of the watch config.
+    stable_polls: int | None = None
+    marker_suffix: str | None = None
+    require_marker: bool | None = None
+    retries: int | None = None
+    file_types: tuple[str, ...] = ()  # e.g. (".pdf", ".tif"); empty = all supported types
+    max_mb: float = 0  # 0 = no limit
+    duplicate: str = "error"  # error (move to error/) | skip (delete silently is never done: moved to archive/) | reprocess
 
 
 @dataclass
@@ -50,6 +60,7 @@ class WatchConfig:
     require_marker: bool = False
     retries: int = 3
     retry_backoff: float = 30.0
+    source: Path | None = None  # file the config was read from (reloaded when it changes)
 
 
 def load_watch_config(path: Path) -> WatchConfig:
@@ -59,11 +70,23 @@ def load_watch_config(path: Path) -> WatchConfig:
     remote = bool(raw.get("remote", False))
     folders = []
     for f in raw.get("folders", []):
+        dup = f.get("duplicate", "error")
+        if dup not in {"error", "skip", "reprocess"}:
+            raise ValueError(f"folder {f.get('name') or f['in']}: duplicate must be error, skip or reprocess")
         folders.append(
             WatchedFolder(
                 inbox=(base / f["in"]).resolve(),
                 out=(base / f["out"]).resolve(),
                 profile=load_profile(base / f["profile"]) if f.get("profile") else load_profile(None),
+                name=str(f.get("name") or ""),
+                paused=bool(f.get("paused", False)),
+                stable_polls=f.get("stable_polls"),
+                marker_suffix=f.get("marker_suffix"),
+                require_marker=f.get("require_marker"),
+                retries=f.get("retries"),
+                file_types=tuple("." + t.lower().lstrip(".") for t in (f.get("file_types") or [])),
+                max_mb=float(f.get("max_mb") or 0),
+                duplicate=dup,
             )
         )
     if not folders:
@@ -78,13 +101,16 @@ def load_watch_config(path: Path) -> WatchConfig:
         require_marker=bool(raw.get("require_marker", False)),
         retries=int(raw.get("retries", 3)),
         retry_backoff=float(raw.get("retry_backoff", 30)),
+        source=path,
     )
 
 
-def _candidate(p: Path, marker_suffix: str) -> bool:
+def _candidate(p: Path, marker_suffix: str, file_types: tuple[str, ...] = ()) -> bool:
     if not p.is_file() or p.name.startswith((".", "~")):
         return False
     if p.suffix.lower() in IGNORED_SUFFIXES or p.name.endswith(marker_suffix):
+        return False
+    if file_types and p.suffix.lower() not in file_types:
         return False
     return p.suffix.lower() in SUPPORTED
 
@@ -113,7 +139,7 @@ class Watcher:
 
     def __post_init__(self) -> None:
         r = self.config.root
-        for d in ("processing", "archive", "error", ".ccocr"):
+        for d in ("processing", "archive", "error", "review", ".ccocr"):
             (r / d).mkdir(parents=True, exist_ok=True)
         for f in self.config.folders:
             f.inbox.mkdir(parents=True, exist_ok=True)
@@ -124,19 +150,26 @@ class Watcher:
         )
         self.db.commit()
 
+    # -- per-folder settings ------------------------------------------------
+    def _opt(self, folder: WatchedFolder, name: str):  # noqa: ANN202
+        v = getattr(folder, name)
+        return getattr(self.config, name) if v is None else v
+
     # -- detection ---------------------------------------------------------
     def ready_files(self, folder: WatchedFolder) -> list[Path]:
         ready = []
         present = set()
+        marker_suffix = self._opt(folder, "marker_suffix")
+        stable_polls = self._opt(folder, "stable_polls")
         for p in sorted(folder.inbox.iterdir()):
-            if not _candidate(p, self.config.marker_suffix):
+            if not _candidate(p, marker_suffix, folder.file_types):
                 continue
             present.add(p)
-            marker = p.with_name(p.name + self.config.marker_suffix)
+            marker = p.with_name(p.name + marker_suffix)
             if marker.exists():
                 ready.append(p)
                 continue
-            if self.config.require_marker:
+            if self._opt(folder, "require_marker"):
                 continue
             st = p.stat()
             s = self._seen.get(p)
@@ -144,7 +177,7 @@ class Watcher:
                 s.stable += 1
             else:
                 self._seen[p] = s = _Seen(st.st_size, st.st_mtime, 0)
-            if s.stable >= self.config.stable_polls - 1 and _can_open_exclusively(p):
+            if s.stable >= stable_polls - 1 and _can_open_exclusively(p):
                 ready.append(p)
         for p in list(self._seen):
             if p.parent == folder.inbox and p not in present:
@@ -168,30 +201,56 @@ class Watcher:
             src.unlink()
         return dest
 
+    def _record(self, digest: str, name: str, job_id: str, status: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO batches VALUES (?,?,?,?,?)", (digest, name, job_id, status, datetime.now().isoformat()))
+        self.db.commit()
+
     def handle(self, folder: WatchedFolder, path: Path) -> None:
         root = self.config.root
-        marker = path.with_name(path.name + self.config.marker_suffix)
+        marker = path.with_name(path.name + self._opt(folder, "marker_suffix"))
         job_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + path.stem[:20].replace(" ", "_")
+        if folder.max_mb and path.stat().st_size > folder.max_mb * 1024 * 1024:
+            dest = self._move(path, root / "error", path.name)
+            dest.with_name(dest.name + ".error.txt").write_text(
+                f"File is larger than the folder limit of {folder.max_mb:g} MB.\n", encoding="utf-8"
+            )
+            if marker.exists():
+                marker.unlink()
+            self._seen.pop(path, None)
+            self.log(f"too large, moved to error/: {path.name}")
+            return
         work = self._move(path, root / "processing", f"{job_id}__{path.name}")
         if marker.exists():
             marker.unlink()
         self._seen.pop(path, None)
         digest = sha256_file(work)
         row = self.db.execute("SELECT job_id, status FROM batches WHERE sha256 = ?", (digest,)).fetchone()
-        if row and row[1] == "done":
+        if row and row[1] in ("done", "waiting-separation") and folder.duplicate != "reprocess":
+            if folder.duplicate == "skip":
+                self._move(work, root / "archive" / "duplicates", path.name)
+                self.log(f"duplicate skipped and archived: {path.name} (job {row[0]})")
+                return
             dest = self._move(work, root / "error", path.name)
             dest.with_name(dest.name + ".error.txt").write_text(
                 f"Duplicate: identical file (SHA-256 {digest}) was already processed as job {row[0]}.\n", encoding="utf-8"
             )
             self.log(f"duplicate skipped: {path.name} (job {row[0]})")
             return
+        if not folder.profile["split"].get("auto_accept", False):
+            # Split proposals must be confirmed by an operator (spec 3.2): the batch waits in
+            # review/ for the separation screen. Nothing is written to the output folder.
+            self._move(work, root / "review", f"{job_id}__{path.name}")
+            self._record(digest, path.name, job_id, "waiting-separation")
+            self.log(f"job {job_id} waits for operator separation (auto-accept is off in profile {folder.profile.name})")
+            return
         try:
             report = process_batch(work, folder.profile, folder.out, job_id=job_id, batch_name=path.name, log=self.log)
         except Exception as e:  # noqa: BLE001
             n = self._failures.get(digest, 0) + 1
             self._failures[digest] = n
-            if n < self.config.retries:
-                self.log(f"job {job_id} failed (attempt {n}/{self.config.retries}), will retry: {e}")
+            retries = self._opt(folder, "retries")
+            if n < retries:
+                self.log(f"job {job_id} failed (attempt {n}/{retries}), will retry: {e}")
                 self._move(work, folder.inbox, path.name)
                 time.sleep(min(self.config.retry_backoff * n, 300))
                 return
@@ -199,19 +258,19 @@ class Watcher:
             dest.with_name(dest.name + ".error.txt").write_text(
                 f"Job {job_id} failed after {n} attempt(s).\n\n{traceback.format_exc()}", encoding="utf-8"
             )
-            self.db.execute("INSERT OR REPLACE INTO batches VALUES (?,?,?,?,?)", (digest, path.name, job_id, "error", datetime.now().isoformat()))
-            self.db.commit()
+            self._record(digest, path.name, job_id, "error")
             self.log(f"job {job_id} moved to error/: {e}")
             return
         archive = root / "archive" / datetime.now().strftime("%Y-%m-%d")
         self._move(work, archive, path.name)
-        self.db.execute("INSERT OR REPLACE INTO batches VALUES (?,?,?,?,?)", (digest, path.name, job_id, "done", datetime.now().isoformat()))
-        self.db.commit()
+        self._record(digest, path.name, job_id, "done")
         self.log(f"job {job_id} done: {len(report['documents'])} document(s) -> {folder.out}")
 
     def poll_once(self) -> int:
         handled = 0
         for folder in self.config.folders:
+            if folder.paused:
+                continue
             try:
                 files = self.ready_files(folder)
             except OSError as e:
@@ -222,10 +281,33 @@ class Watcher:
                 handled += 1
         return handled
 
+    def _reload_if_changed(self, mtime: float | None) -> float | None:
+        """Pick up a config written by the admin console without restarting the container."""
+        src = self.config.source
+        if src is None or not src.exists():
+            return mtime
+        now = src.stat().st_mtime
+        if mtime is not None and now != mtime:
+            try:
+                new = load_watch_config(src)
+            except Exception as e:  # noqa: BLE001 - keep running with the old config
+                self.log(f"new configuration not loaded, keeping the previous one: {e}")
+                return now
+            for f in new.folders:
+                f.inbox.mkdir(parents=True, exist_ok=True)
+                f.out.mkdir(parents=True, exist_ok=True)
+            self.config = new
+            self._seen.clear()
+            self.log(f"configuration reloaded: {len(new.folders)} folder(s)")
+        return now
+
     def run(self, once: bool = False) -> None:
-        self.log(f"watching {len(self.config.folders)} folder(s), every {self.config.poll_interval:.0f} s")
+        active = sum(not f.paused for f in self.config.folders)
+        self.log(f"watching {active} folder(s), every {self.config.poll_interval:.0f} s")
+        mtime = self.config.source.stat().st_mtime if self.config.source and self.config.source.exists() else None
         while True:
             self.poll_once()
             if once:
                 return
             time.sleep(self.config.poll_interval)
+            mtime = self._reload_if_changed(mtime)

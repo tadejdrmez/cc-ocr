@@ -86,12 +86,27 @@ def _openssl_local(data: bytes, cfg: dict[str, Any]) -> bytes:
         return r.read_bytes()
 
 
+def tsa_credentials() -> tuple[str | None, str | None]:
+    """TSA basic-auth credentials: environment first, then the secrets file the admin console writes."""
+    user, pw = os.environ.get("CCOCR_TSA_USER"), os.environ.get("CCOCR_TSA_PASSWORD")
+    if user and pw:
+        return user, pw
+    path = Path(os.environ.get("CCOCR_SECRETS_FILE", "/data/.ccocr/secrets.json"))
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("tsa_user") or None, data.get("tsa_password") or None
+    except (OSError, ValueError):
+        return None, None
+
+
 def _http(data: bytes, cfg: dict[str, Any]) -> bytes:
     url = cfg.get("url")
     if not url:
         raise TimestampError("timestamp.url is not set")
     req = urllib.request.Request(url, data=_request(data), headers={"Content-Type": "application/timestamp-query"})
-    user, pw = os.environ.get("CCOCR_TSA_USER"), os.environ.get("CCOCR_TSA_PASSWORD")
+    user, pw = tsa_credentials()
     if user and pw:
         import base64
 

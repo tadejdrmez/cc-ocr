@@ -39,34 +39,69 @@ Downstream systems can read the embedded XML with any PDF library, or with
 ### Windows PC (Docker Desktop with WSL2)
 
 ```powershell
-docker load -i cc-ocr-0.1.0.tar          # or: docker compose build
-docker run -d --name cc-ocr --restart unless-stopped -v C:\Scan:/data cc-ocr:0.1.0
+docker load -i cc-ocr-0.2.0.tar          # or: docker compose build
+$env:CCOCR_DATA="C:\Scan"; docker compose up -d
 ```
 
-Scanners save into `C:\Scan\in`; results appear in `C:\Scan\out`.
+Scanners save into `C:\Scan\in`; results appear in `C:\Scan\out`. The admin
+console runs on http://localhost:8080 (see below).
 
 ### Linux server (e.g. next to CC_archive)
 
 ```bash
-docker load -i cc-ocr-0.1.0.tar
+docker load -i cc-ocr-0.2.0.tar
 CCOCR_DATA=/srv/scan docker compose up -d
 ```
 
 ### Offline transfer
 
 ```bash
-docker build -t cc-ocr:0.1.0 .
-docker save cc-ocr:0.1.0 | gzip > cc-ocr-0.1.0.tar.gz   # copy this file to the target machine
+docker build -t cc-ocr:0.2.0 .
+docker save cc-ocr:0.2.0 | gzip > cc-ocr-0.2.0.tar.gz   # copy this file to the target machine
 ```
 
 ### One-off commands
 
 ```bash
-docker run --rm -v C:\Scan:/data cc-ocr:0.1.0 process /data/batch.pdf --out /data/out
-docker run --rm -v C:\Scan:/data cc-ocr:0.1.0 separator-sheet --doctype invoice --doctype contract --out /data/separators.pdf
-docker run --rm -v C:\Scan:/data cc-ocr:0.1.0 test-rule /data/batch.pdf --expr 'top contains "račun"'
-docker run --rm -v C:\Scan:/data cc-ocr:0.1.0 verify /data/out --tsa-dir /data/.ccocr/test-tsa
+docker run --rm -v C:\Scan:/data cc-ocr:0.2.0 process /data/batch.pdf --out /data/out
+docker run --rm -v C:\Scan:/data cc-ocr:0.2.0 separator-sheet --doctype invoice --doctype contract --out /data/separators.pdf
+docker run --rm -v C:\Scan:/data cc-ocr:0.2.0 test-rule /data/batch.pdf --expr 'top contains "račun"'
+docker run --rm -v C:\Scan:/data cc-ocr:0.2.0 verify /data/out --tsa-dir /data/.ccocr/test-tsa
 ```
+
+## Admin console
+
+`docker compose up -d` starts two containers from the same image: `ccocr`
+(the folder watcher) and `ccocr-admin` (the web console on port 8080, change
+it with `CCOCR_ADMIN_PORT`).
+
+1. On first start the console prints a setup code:
+   `docker compose logs ccocr-admin`. Open `http://<host>:8080/setup`, enter
+   the code and create the first administrator.
+2. The console imports `/app/config/watch.yaml` and its profiles once (mount
+   your own config there to import it). After that the database
+   (`/data/.ccocr/admin.sqlite`) is the source of the configuration.
+3. Every publish or folder change writes `/data/.ccocr/config/watch.yaml` and
+   one YAML per published profile. The watcher reloads it within one poll
+   interval; no restart is needed. Do not edit those files by hand.
+
+What the console covers: profiles (draft, publish, history with compare and
+restore, YAML import/export), split rules with a live tester, folders (input
+and output settings per folder), separator sheets, document types, trust
+services (TimeStamp URL, trust anchors, credentials, connection test; e-seal
+settings are stored but sealing is not active yet), local users with the roles
+Administrator, Operator and Reviewer, system settings and the append-only audit
+log with CSV export. LDAP / Active Directory follows in version 2.
+
+Automatic acceptance of split proposals is **off by default** for new
+profiles. Batches of such a profile wait in `/data/review/` until the operator
+separation screen (next increment) confirms them. Switching it on needs a
+written reason and is audited. The shipped example profiles have it on.
+
+Passwords for the TimeStamp service entered in the console are stored in
+`/data/.ccocr/secrets.json` (mode 0600); `CCOCR_TSA_USER` / `CCOCR_TSA_PASSWORD`
+in the environment take precedence. Put the console behind HTTPS (reverse
+proxy) when it is reachable from other machines, and set `CCOCR_HTTPS_ONLY=1`.
 
 ## Splitting by text rules
 
@@ -147,7 +182,11 @@ ccocr process demo.tif --profile profiles/example.yaml --out out --tsa-dir ./tsa
 
 ## Known limits of this increment
 
-- No operator screens yet: proposals and documents are auto-accepted.
+- No operator screens yet: profiles with auto-accept off hold batches in
+  `review/`; profiles with auto-accept on deliver directly (marked
+  "auto-accepted" in the report and XML).
+- The console UI is English; the Slovenian and Serbian catalogues are prepared
+  but not translated yet.
 - With `pdf_image: original`, skew is detected and reported but not corrected,
   so the text layer stays aligned with the unchanged scan.
 - PDF pages are rasterised at their native resolution and embedded losslessly;

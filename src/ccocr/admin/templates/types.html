@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% from "macros.html" import csrf_field with context %}
+{% block title %}{{ _("Document types") }}{% endblock %}{% block heading %}{{ _("Document types & classifications") }}{% endblock %}
+{% block content %}
+<form class="card" method="post" action="/types">{{ csrf_field() }}<div class="bd col">
+  <p class="muted small" style="margin:0">{{ _("One entry per line: code = label. Codes are used in separator sheets, rules, file names and the metadata XML, so change them carefully.") }}</p>
+  <div class="row">
+    <div class="f"><label for="doctypes">{{ _("Document types") }}</label><textarea id="doctypes" name="doctypes" rows="10">{% for d in doctypes %}{{ d.code }} = {{ d.label }}
+{% endfor %}</textarea></div>
+    <div class="f"><label for="classes">{{ _("Classifications") }}</label><textarea id="classes" name="classes" rows="10" placeholder="4.2.1 = Prejeti računi">{% for d in classes %}{{ d.code }} = {{ d.label }}
+{% endfor %}</textarea></div>
+  </div>
+  <div class="actions"><button class="btn pri">{{ _("Save") }}</button></div></div></form>
+{% endblock %}
