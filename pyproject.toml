@@ -20,6 +20,7 @@ dependencies = [
   "asn1crypto>=1.5",
   "lxml>=5",
   "PyYAML>=6",
+  "pyHanko>=0.25",
 ]
 
 [project.optional-dependencies]

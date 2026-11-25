@@ -17,17 +17,22 @@ proposals and documents are **auto-accepted** for now, and every output says so.
 | Optimise | Auto-levels, despeckle, Sauvola binarisation, border removal, DPI normalisation, skew detection, blank-page detection. The original scan stays the image in the PDF (default). |
 | Split proposals | QR separator sheets, blank pages, **text rules** (logical expressions on the page's OCR text), other barcodes, fixed page count. |
 | OCR | Per-page orientation and script detection; Latin pages read with `slv+hrv+srp_latn+eng`, Cyrillic with `srp+srp_latn` (configurable); low-confidence pages retried with the other set. |
-| Output | PDF/A-2 per document, sidecar XML (`urn:cc:ocr:metadata:1`, XSD in `src/ccocr/schemas`), hash manifest, RFC 3161 timestamp (`.tsr`) over the manifest, job report JSON per batch. |
+| Output | **One file per document** by default: PDF/A-3 with the metadata XML embedded (`urn:cc:ocr:metadata:1`, XSD in `src/ccocr/schemas`) and a PAdES document timestamp (RFC 3161, `ETSI.RFC3161`) that Adobe Reader shows and verifies. Optional `package: sidecars` writes PDF/A-2 + `.xml` + `.manifest.xml` + `.tsr` instead. A JSON job report per batch goes to `out/_reports/`. |
 
 ```
-in/  ->  processing/  ->  out/invoice_batch_001.pdf
-                              invoice_batch_001.xml           sidecar metadata
-                              invoice_batch_001.manifest.xml  SHA-256 of PDF + XML
-                              invoice_batch_001.tsr           timestamp over the manifest
-                              batch.<job>.job-report.json
+in/  ->  processing/  ->  out/invoice_batch_001.pdf       searchable PDF/A-3, metadata XML inside, timestamped
+                          out/invoice_batch_002.pdf
+                          out/_reports/batch.<job>.job-report.json
           archive/<date>/batch.pdf   (original, unchanged)
           error/                     (failed or duplicate batches + .error.txt)
 ```
+
+With `output.package: sidecars` each document is instead four files:
+`.pdf` (PDF/A-2), `.xml`, `.manifest.xml` (SHA-256 of PDF + XML) and `.tsr`
+(RFC 3161 token over the manifest).
+
+Downstream systems can read the embedded XML with any PDF library, or with
+`ccocr extract-xml file.pdf`.
 
 ## Run with Docker
 
@@ -97,6 +102,10 @@ page with a QR code `CCOCR:1;SEP;DT=INVOICE;CLS=4.2.1`. Put one in front of each
 document; the sheet is removed and its values become the document's metadata.
 
 ## Timestamps
+
+In single-file mode the timestamp is a PAdES document timestamp inside the
+PDF; it covers the whole file including the embedded XML. In sidecar mode it
+is a `.tsr` token over the hash manifest.
 
 | Mode | Use |
 | --- | --- |

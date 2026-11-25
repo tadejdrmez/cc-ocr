@@ -24,7 +24,7 @@ def run(tmp_path_factory):
     profile = load_profile({
         "split": {"rules": [{"name": "invoice", "expr": "top matches /RAČUN\\s+št/i", "doctype": "invoice"}]},
         "timestamp": {"mode": "openssl-local", "openssl_dir": str(d / "tsa")},
-        "output": {"metadata": ["sidecar-xml", "filename"], "naming": "{doctype}_{seq}"},
+        "output": {"package": "sidecars", "metadata": ["xml", "filename"], "naming": "{doctype}_{seq}"},
     })
     report = process_batch(batch, profile, d / "out")
     return d, report
@@ -50,7 +50,7 @@ def test_rotated_page_detected(run):
     assert report["pages"][5]["script"] == "Cyrillic"
 
 
-def test_output_is_pdfa(run):
+def test_sidecar_output_is_pdfa(run):
     import pikepdf
 
     d, _ = run
@@ -71,7 +71,7 @@ def test_manifest_and_timestamp_verify(run):
 
 def test_tampering_is_detected(run):
     d, report = run
-    xml = d / "out" / report["documents"][0]["sidecar"]
+    xml = d / "out" / report["documents"][0]["metadata_xml"]
     xml.write_bytes(xml.read_bytes().replace(b"invoice", b"invoicX", 1))
     assert check_manifest(d / "out" / report["documents"][0]["manifest"])
 
@@ -80,3 +80,62 @@ def test_report_written(run):
     d, report = run
     data = json.loads((d / "out" / report["report_file"]).read_text(encoding="utf-8"))
     assert data["batch"]["pages"] == 7 and len(data["documents"]) == 3
+
+
+# --- single-file output (default): PDF/A-3 + embedded XML + PAdES document timestamp ---
+
+
+@pytest.fixture(scope="module")
+def single(tmp_path_factory):
+    d = tmp_path_factory.mktemp("single")
+    batch = d / "batch.tif"
+    demo_batch(batch)
+    init_test_tsa(d / "tsa")
+    profile = load_profile({
+        "split": {"rules": [{"name": "invoice", "expr": "top matches /RAČUN\\s+št/i", "doctype": "invoice"}]},
+        "timestamp": {"mode": "openssl-local", "openssl_dir": str(d / "tsa")},
+        "output": {"naming": "{doctype}_{seq}"},
+    })
+    report = process_batch(batch, profile, d / "out")
+    return d, report
+
+
+def test_single_mode_writes_only_pdfs(single):
+    d, report = single
+    assert sorted(p.name for p in (d / "out").iterdir() if p.is_file()) == ["contract_003.pdf", "invoice_001.pdf", "invoice_002.pdf"]
+    assert (d / "out" / report["report_file"]).exists()
+
+
+def test_single_mode_pdfa3_with_embedded_xml(single):
+    import pikepdf
+
+    from ccocr.output import schema
+    from lxml import etree
+
+    d, _ = single
+    with pikepdf.open(d / "out" / "invoice_001.pdf") as pdf:
+        assert pdf.open_metadata().pdfa_status == "3B"
+        assert list(pdf.attachments) == ["invoice_001.xml"]
+        spec = pdf.attachments["invoice_001.xml"]
+        assert str(spec.obj.get("/AFRelationship")) == "/Data"
+        assert len(pdf.Root.AF) == 1
+        xml = spec.get_file().read_bytes()
+    schema("cc-ocr-metadata-1.xsd").assertValid(etree.fromstring(xml))
+
+
+def test_single_mode_timestamp_verifies_and_detects_tampering(single):
+    from ccocr.pades import verify_pdf
+
+    d, report = single
+    cfg = {"mode": "openssl-local", "openssl_dir": str(d / "tsa")}
+    pdf = d / "out" / "invoice_002.pdf"
+    ok, detail = verify_pdf(pdf, cfg)
+    assert ok, detail
+    assert report["documents"][1]["timestamp"]["verified"] is True
+    data = bytearray(pdf.read_bytes())
+    i = data.find(b"/Producer")
+    data[i + 1] = ord("p")
+    bad = d / "tampered.pdf"
+    bad.write_bytes(bytes(data))
+    ok, _ = verify_pdf(bad, cfg)
+    assert not ok

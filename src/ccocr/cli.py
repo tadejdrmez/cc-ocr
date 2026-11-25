@@ -81,19 +81,53 @@ def cmd_test_rule(a: argparse.Namespace) -> int:
 
 
 def cmd_verify(a: argparse.Namespace) -> int:
+    """Check every output in a folder: PDFs with a document timestamp, and manifest + .tsr pairs."""
     from .output import check_manifest
+    from .pades import verify_pdf
     from .timestamp import verify
 
     cfg = {"mode": "openssl-local" if a.tsa_dir else "http", "openssl_dir": a.tsa_dir or "", "ca_file": a.ca or ""}
-    bad = 0
-    for m in sorted(Path(a.dir).glob("*.manifest.xml")):
+    bad = checked = 0
+    folder = Path(a.dir)
+    manifests = sorted(folder.glob("*.manifest.xml"))
+    paired = {m.name.replace(".manifest.xml", ".pdf") for m in manifests}
+    for pdf in sorted(folder.glob("*.pdf")):
+        if pdf.name in paired:
+            continue
+        ok, detail = verify_pdf(pdf, cfg)
+        checked += 1
+        bad += not ok
+        _log(f"{'OK  ' if ok else 'FAIL'} {pdf.name}: {detail}")
+    for m in manifests:
         problems = check_manifest(m)
         tsr = m.with_name(m.name.replace(".manifest.xml", ".tsr"))
         ts_ok, detail = (verify(m, tsr, cfg) if tsr.exists() else (False, "no .tsr"))
         ok = not problems and ts_ok
+        checked += 1
         bad += not ok
-        _log(f"{'OK  ' if ok else 'FAIL'} {m.name}: hashes {'ok' if not problems else problems}; timestamp {detail.splitlines()[-1] if detail else ''}")
+        _log(f"{'OK  ' if ok else 'FAIL'} {m.name}: hashes {'ok' if not problems else problems}; timestamp {detail}")
+    if not checked:
+        _log("nothing to verify")
     return 1 if bad else 0
+
+
+def cmd_extract_xml(a: argparse.Namespace) -> int:
+    """Write the metadata XML embedded in a CC OCR PDF next to it (or to stdout)."""
+    import pikepdf
+
+    with pikepdf.open(a.pdf) as pdf:
+        names = [n for n in pdf.attachments if n.lower().endswith(".xml")]
+        if not names:
+            _log("no embedded XML")
+            return 1
+        data = pdf.attachments[names[0]].get_file().read_bytes()
+    if a.stdout:
+        sys.stdout.buffer.write(data)
+    else:
+        out = Path(a.pdf).with_suffix(".xml")
+        out.write_bytes(data)
+        _log(f"wrote {out}")
+    return 0
 
 
 def cmd_init_tsa(a: argparse.Namespace) -> int:
@@ -148,6 +182,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--tsa-dir")
     s.add_argument("--ca")
     s.set_defaults(fn=cmd_verify)
+
+    s = sub.add_parser("extract-xml", help="extract the metadata XML embedded in an output PDF")
+    s.add_argument("pdf")
+    s.add_argument("--stdout", action="store_true")
+    s.set_defaults(fn=cmd_extract_xml)
 
     s = sub.add_parser("init-test-tsa", help="create a test timestamp authority (not for production)")
     s.add_argument("dir")

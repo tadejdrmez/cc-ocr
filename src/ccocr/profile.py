@@ -38,7 +38,7 @@ DEFAULTS: dict[str, Any] = {
         "latin": ["slv", "hrv", "srp_latn", "eng"],
         "cyrillic": ["srp", "srp_latn"],
         "min_confidence": 60,
-        "output": "pdfa-2",
+        "output": "auto",  # auto = pdfa-3 for single-file output, pdfa-2 for sidecars
     },
     "split": {
         "proposals": ["qr-separator", "blank-page", "text-rule"],
@@ -51,7 +51,10 @@ DEFAULTS: dict[str, Any] = {
         "drop_blank_pages": True,
     },
     "output": {
-        "metadata": ["sidecar-xml"],  # sidecar-xml and/or filename
+        # single  = one PDF/A-3 per document: metadata XML embedded, PAdES document timestamp
+        # sidecars = PDF/A-2 + .xml + .manifest.xml + .tsr next to each other
+        "package": "single",
+        "metadata": ["xml"],  # xml and/or filename
         "naming": "{doctype}_{batch}_{seq}",
         "date_format": "%Y-%m-%d",
         "max_length": 120,
@@ -111,8 +114,10 @@ def load_profile(source: str | Path | dict[str, Any] | None) -> Profile:
     if opt["binarise"] not in {"sauvola", "otsu", "none"}:
         raise ProfileError("optimiser.binarise must be sauvola, otsu or none")
     for m in raw["output"]["metadata"]:
-        if m not in {"sidecar-xml", "filename"}:
+        if m not in {"xml", "sidecar-xml", "filename"}:
             raise ProfileError(f"unknown output.metadata mode {m!r}")
+    if raw["output"]["package"] not in {"single", "sidecars"}:
+        raise ProfileError("output.package must be 'single' or 'sidecars'")
     if raw["timestamp"]["mode"] not in {"openssl-local", "http", "none"}:
         raise ProfileError("timestamp.mode must be openssl-local, http or none")
     known = {"qr-separator", "blank-page", "text-rule", "fixed-count", "barcode"}

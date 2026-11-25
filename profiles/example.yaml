@@ -21,7 +21,7 @@ ocr:
   latin: [slv, hrv, srp_latn, eng]
   cyrillic: [srp, srp_latn]
   min_confidence: 60
-  output: pdfa-2
+  output: auto             # auto: pdfa-3 for single, pdfa-2 for sidecars
 
 split:
   proposals: [qr-separator, blank-page, text-rule]
@@ -34,7 +34,8 @@ split:
   drop_blank_pages: true
 
 output:
-  metadata: [sidecar-xml, filename]
+  package: single          # single (one PDF/A-3: XML embedded + PAdES timestamp) | sidecars
+  metadata: [xml, filename]
   naming: "{doctype}_{batch}_{seq}"
   max_length: 120
   on_collision: suffix

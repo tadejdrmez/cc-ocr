@@ -42,7 +42,7 @@ def write_atomic(path: Path, data: bytes) -> None:
 @dataclass
 class SidecarInput:
     pdf_name: str
-    pdf_sha256: str
+    pdf_sha256: str | None
     page_count: int
     profile: str
     validation_status: str
@@ -65,7 +65,9 @@ class SidecarInput:
 def build_sidecar(s: SidecarInput) -> bytes:
     q = lambda t: f"{{{MD_NS}}}{t}"  # noqa: E731
     root = etree.Element(q("document"), nsmap={"ccocr": MD_NS}, schemaVersion="1.0")
-    etree.SubElement(root, q("file"), name=s.pdf_name, sha256=s.pdf_sha256, pages=str(s.page_count))
+    f_el = etree.SubElement(root, q("file"), name=s.pdf_name, pages=str(s.page_count))
+    if s.pdf_sha256:
+        f_el.set("sha256", s.pdf_sha256)
     etree.SubElement(root, q("profile")).text = s.profile
     v = etree.SubElement(root, q("validation"), status=s.validation_status, at=s.validated_at.isoformat(timespec="seconds"))
     if s.validated_by:

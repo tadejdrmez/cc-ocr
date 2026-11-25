@@ -24,6 +24,7 @@ from .ingest import SourcePage, load_batch, sha256_file
 from .naming import NamingError, build_name, unique_path
 from .ocr import OsdResult, PageOcr, detect_osd, ocr_page, rotate_upright, tesseract_version
 from .optimiser import OPTIMISER_VERSION, OptimisedPage, optimise
+from .pades import add_document_timestamp, embed_files, verify_pdf
 from .output import SidecarInput, build_manifest, build_sidecar, check_manifest, sha256_bytes, write_atomic
 from .profile import Profile
 from .rules import PageContext
@@ -135,7 +136,13 @@ def process_batch(
     }
     out_cfg, ts_cfg, ocr_cfg = profile["output"], profile["timestamp"], profile["ocr"]
     min_conf = float(ocr_cfg.get("min_confidence", 60))
-    pdfa = ocr_cfg.get("output", "pdfa-2")
+    package = out_cfg.get("package", "single")
+    single = package == "single"
+    want_xml = bool({"xml", "sidecar-xml"} & set(out_cfg.get("metadata", [])))
+    pdfa = ocr_cfg.get("output") or "auto"
+    if pdfa == "auto" or (single and want_xml and pdfa != "pdfa-3"):
+        # Embedding the metadata XML needs PDF/A-3 (associated files).
+        pdfa = "pdfa-3" if single else "pdfa-2"
     auto = bool(profile["split"].get("auto_accept", True))
     documents_report: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -166,7 +173,7 @@ def process_batch(
         except NamingError as e:
             flags.append(f"naming: {e}; fallback name used")
             base = build_name("{doctype}_{batch}_{seq}", meta)
-        exts = (".pdf", ".xml", ".manifest.xml", ".tsr")
+        exts = (".pdf",) if single else (".pdf", ".xml", ".manifest.xml", ".tsr")
         base = unique_path(out_dir, base, exts, out_cfg.get("on_collision", "suffix"))
 
         pdf_path = out_dir / f"{base}.pdf"
@@ -186,16 +193,12 @@ def process_batch(
         except PdfaWarning as w:
             pdfa_status = "written; PDF/A validity not confirmed"
             flags.append(f"PDF/A conversion warning: {w}")
-        os.replace(tmp_pdf, pdf_path)
-        pdf_bytes = pdf_path.read_bytes()
-        pdf_sha = sha256_bytes(pdf_bytes)
         confs = [r.ocr.confidence for r in doc_pages if r.ocr and r.ocr.words]
         mean_conf = round(sum(confs) / len(confs), 1) if confs else None
         scripts = sorted({(r.osd.script if r.osd else "unknown") for r in doc_pages})
 
-        entries: list[tuple[str, str, bytes]] = [(pdf_path.name, "document", pdf_bytes)]
-        xml_name = None
-        if "sidecar-xml" in out_cfg.get("metadata", []):
+        sidecar: bytes | None = None
+        if want_xml:
             fields = [
                 {"name": k, "type": "text", "value": v, "source": "separator" if k in doc.metadata else "default"}
                 for k, v in meta.items()
@@ -203,7 +206,11 @@ def process_batch(
             ]
             sidecar = build_sidecar(
                 SidecarInput(
-                    pdf_name=pdf_path.name, pdf_sha256=pdf_sha, page_count=len(asm), profile=profile.name,
+                    pdf_name=pdf_path.name,
+                    # In single-file mode the XML lives inside the PDF, so it cannot carry
+                    # the PDF's own hash; the document timestamp protects both instead.
+                    pdf_sha256=None if single else sha256_bytes(tmp_pdf.read_bytes()),
+                    page_count=len(asm), profile=profile.name,
                     validation_status="auto-accepted" if auto else "confirmed", validated_by="" if auto else "operator",
                     validated_at=datetime.now(timezone.utc).astimezone(), doctype=meta["doctype"],
                     classification=meta["classification"], batch_name=batch_name, batch_sha256=batch_sha,
@@ -213,38 +220,65 @@ def process_batch(
                     image=profile["optimiser"]["pdf_image"], pdfa=pdfa, mean_confidence=mean_conf,
                 )
             )
-            xml_name = f"{base}.xml"
-            write_atomic(out_dir / xml_name, sidecar)
-            entries.append((xml_name, "metadata", sidecar))
-
-        manifest = build_manifest(job_id, profile.name, datetime.now(timezone.utc).astimezone(), entries)
-        manifest_path = out_dir / f"{base}.manifest.xml"
-        write_atomic(manifest_path, manifest)
 
         ts_report: dict[str, Any] = {"mode": ts_cfg.get("mode")}
-        try:
-            ts = timestamp(manifest, ts_cfg)
-            if ts is not None:
-                tsr_path = out_dir / f"{base}.tsr"
-                write_atomic(tsr_path, ts.token)
-                ok, detail = verify(manifest_path, tsr_path, ts_cfg)
-                ts_report.update(
-                    file=tsr_path.name, gen_time=ts.gen_time, serial=ts.serial, tsa=ts.tsa,
-                    qualified=ts.qualified, verified=ok, verify_detail=detail.splitlines()[-1] if detail else "",
-                )
-                if not ts.qualified:
-                    ts_report["note"] = "NON-QUALIFIED timestamp (test/pilot)"
-        except (TimestampError, OSError) as e:
-            flags.append(f"timestamp failed: {e}")
-            ts_report["error"] = str(e)
+        xml_name = None
+        manifest_name = None
+        integrity: Any = "ok"
+        if single:
+            if sidecar is not None:
+                xml_name = f"{base}.xml"
+                embed_files(tmp_pdf, [(xml_name, sidecar, "application/xml", "CC OCR document metadata (urn:cc:ocr:metadata:1)")])
+            if ts_cfg.get("mode") != "none":
+                try:
+                    info = add_document_timestamp(tmp_pdf, ts_cfg)
+                    ok, detail = verify_pdf(tmp_pdf, ts_cfg)
+                    ts_report.update(kind="PAdES document timestamp (ETSI.RFC3161)", **info, verified=ok, verify_detail=detail)
+                    if not info.get("qualified"):
+                        ts_report["note"] = "NON-QUALIFIED timestamp (test/pilot)"
+                except Exception as e:  # noqa: BLE001
+                    flags.append(f"timestamp failed: {e}")
+                    ts_report["error"] = str(e)
+            os.replace(tmp_pdf, pdf_path)
+            pdf_sha = sha256_bytes(pdf_path.read_bytes())
+        else:
+            os.replace(tmp_pdf, pdf_path)
+            pdf_bytes = pdf_path.read_bytes()
+            pdf_sha = sha256_bytes(pdf_bytes)
+            entries: list[tuple[str, str, bytes]] = [(pdf_path.name, "document", pdf_bytes)]
+            if sidecar is not None:
+                xml_name = f"{base}.xml"
+                write_atomic(out_dir / xml_name, sidecar)
+                entries.append((xml_name, "metadata", sidecar))
+            manifest = build_manifest(job_id, profile.name, datetime.now(timezone.utc).astimezone(), entries)
+            manifest_path = out_dir / f"{base}.manifest.xml"
+            manifest_name = manifest_path.name
+            write_atomic(manifest_path, manifest)
+            try:
+                ts = timestamp(manifest, ts_cfg)
+                if ts is not None:
+                    tsr_path = out_dir / f"{base}.tsr"
+                    write_atomic(tsr_path, ts.token)
+                    ok, detail = verify(manifest_path, tsr_path, ts_cfg)
+                    ts_report.update(
+                        kind="RFC 3161 token over the hash manifest", file=tsr_path.name, gen_time=ts.gen_time,
+                        serial=ts.serial, tsa=ts.tsa, qualified=ts.qualified, verified=ok, verify_detail=detail,
+                    )
+                    if not ts.qualified:
+                        ts_report["note"] = "NON-QUALIFIED timestamp (test/pilot)"
+            except (TimestampError, OSError) as e:
+                flags.append(f"timestamp failed: {e}")
+                ts_report["error"] = str(e)
+            problems = check_manifest(manifest_path)
+            integrity = "ok" if not problems else problems
 
-        integrity = check_manifest(manifest_path)
         documents_report.append(
             {
                 "seq": seq,
                 "file": pdf_path.name,
-                "sidecar": xml_name,
-                "manifest": manifest_path.name,
+                "package": package,
+                "metadata_xml": (f"embedded: {xml_name}" if single else xml_name) if xml_name else None,
+                "manifest": manifest_name,
                 "sha256": pdf_sha,
                 "batch_pages": _page_ranges(doc.pages),
                 "page_count": len(asm),
@@ -255,7 +289,7 @@ def process_batch(
                 "mean_confidence": mean_conf,
                 "pdfa": {"type": pdfa, "status": pdfa_status},
                 "timestamp": ts_report,
-                "integrity": "ok" if not integrity else integrity,
+                "integrity": integrity,
                 "review_flags": flags,
                 "validation": "auto-accepted (proof of concept, no operator step yet)" if auto else "pending",
             }
@@ -296,7 +330,9 @@ def process_batch(
         "documents": documents_report,
         "warnings": warnings,
     }
-    report_path = out_dir / f"{batch_stem}.{job_id}.job-report.json"
+    reports = out_dir / "_reports"
+    reports.mkdir(exist_ok=True)
+    report_path = reports / f"{batch_stem}.{job_id}.job-report.json"
     write_atomic(report_path, json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
-    report["report_file"] = report_path.name
+    report["report_file"] = str(report_path.relative_to(out_dir))
     return report

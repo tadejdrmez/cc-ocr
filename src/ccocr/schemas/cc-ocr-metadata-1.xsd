@@ -23,7 +23,8 @@
         <xs:element name="file">
           <xs:complexType>
             <xs:attribute name="name" type="xs:string" use="required"/>
-            <xs:attribute name="sha256" type="ccocr:sha256" use="required"/>
+            <!-- present for separate (sidecar) files; omitted when the XML is embedded in the PDF -->
+            <xs:attribute name="sha256" type="ccocr:sha256" use="optional"/>
             <xs:attribute name="pages" type="xs:positiveInteger" use="required"/>
           </xs:complexType>
         </xs:element>
