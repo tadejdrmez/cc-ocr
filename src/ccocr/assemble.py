@@ -15,7 +15,7 @@ OCRmyPDF then converts the document to PDF/A without OCRing again
 * ``original`` - lossless only: images kept as they are, bilevel images
   recompressed with lossless JBIG2 when the encoder is installed.
 * ``compact`` - smallest file: additionally re-compresses colour/grey images
-  (JPEG quality ``output.jpeg_quality``, default 75) and reduces PNG colours.
+  (JPEG quality ``output.jpeg_quality``, default 50) and reduces PNG colours.
   Text and black-and-white pages stay lossless (no lossy JBIG2, spec 2.3).
 """
 
@@ -124,14 +124,14 @@ def _place_text(dest: pikepdf.Page, pdf: pikepdf.Pdf, text_page: pikepdf.Page, v
 
 
 def build_pdf(pages: list[AssemblyPage], out_path: Path, *, title: str, pdfa: str = "pdfa-2", language: str = "",
-              size: str = "original", jpeg_quality: int = 75) -> None:
+              size: str = "original", jpeg_quality: int = 50) -> None:
     if size not in SIZES:
         raise ValueError(f"output.size must be one of {', '.join(SIZES)}")
     combined = pikepdf.new()
     sources: dict[Path, pikepdf.Pdf] = {}
     try:
         for p in pages:
-            txt_pdf = pikepdf.open(io.BytesIO(p.text_pdf))
+            txt_pdf = pikepdf.open(io.BytesIO(p.text_pdf)) if p.text_pdf else None
             if p.source_pdf is not None:
                 src = sources.get(p.source_pdf) or sources.setdefault(p.source_pdf, pikepdf.open(p.source_pdf))
                 combined.pages.append(src.pages[p.source_index])
@@ -144,12 +144,14 @@ def build_pdf(pages: list[AssemblyPage], out_path: Path, *, title: str, pdfa: st
                 for k in ("/Annots", "/B", "/StructParents"):  # links/annotations of the scan are not kept
                     if k in dest.obj:
                         del dest.obj[k]
-                _place_text(dest, combined, txt_pdf.pages[0], rot)
+                if txt_pdf is not None:
+                    _place_text(dest, combined, txt_pdf.pages[0], rot)
             else:
                 img_pdf = pikepdf.open(io.BytesIO(_image_page_pdf(p.image, p.dpi)))
                 combined.pages.append(img_pdf.pages[0])
                 dest = combined.pages[-1]
-                _place_text(dest, combined, txt_pdf.pages[0], 0)
+                if txt_pdf is not None:
+                    _place_text(dest, combined, txt_pdf.pages[0], 0)
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw.pdf"
             combined.save(raw)

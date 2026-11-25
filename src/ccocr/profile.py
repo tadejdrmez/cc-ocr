@@ -63,7 +63,7 @@ DEFAULTS: dict[str, Any] = {
         # File size: original = scan images kept as they are (lossless only);
         # compact = smallest file, colour/grey images re-compressed (text stays sharp).
         "size": "original",
-        "jpeg_quality": 75,
+        "jpeg_quality": 50,
     },
     "timestamp": {
         "mode": "openssl-local",  # openssl-local | http | none

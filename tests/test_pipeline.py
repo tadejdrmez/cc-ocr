@@ -183,3 +183,23 @@ def test_original_scan_streams_are_kept_and_text_aligned(tmp_path):
         tp = doc[i].get_textpage()
         assert "RAČUN" in tp.get_text_range()
     doc.close()
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract not installed")
+def test_blank_pages_kept_when_drop_is_off(tmp_path):
+    from PIL import Image
+
+    page = Image.new("L", (2480, 3508), 255)
+    src = tmp_path / "blank.tif"
+    demo_batch(tmp_path / "demo.tif")
+    from PIL import ImageSequence
+
+    text_page = next(ImageSequence.Iterator(Image.open(tmp_path / "demo.tif"))).copy().convert("L")
+    text_page.save(src, save_all=True, append_images=[page], dpi=(300, 300), compression="tiff_lzw")
+    for drop, expected in ((True, 1), (False, 2)):
+        prof = load_profile({"timestamp": {"mode": "none"},
+                             "split": {"proposals": [], "auto_accept": True, "drop_blank_pages": drop}})
+        out = tmp_path / f"out-{drop}"
+        process_batch(src, prof, out)
+        (pdf,) = out.glob("*.pdf")
+        assert len(pdfium.PdfDocument(str(pdf))) == expected

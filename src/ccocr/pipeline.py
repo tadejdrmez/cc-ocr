@@ -260,18 +260,18 @@ def process_batch(
             pdf_path = stage / f"{base}.pdf"
             tmp_pdf = stage / f".{base}.pdf.part"
             asm = [
-                AssemblyPage(image=r.pdf_image, dpi=r.opt.pdf_dpi, text_pdf=r.ocr.text_pdf,  # type: ignore[union-attr]
+                # Pages without OCR (blank pages kept because drop_blank_pages is off) get no text layer.
+                AssemblyPage(image=r.pdf_image, dpi=r.opt.pdf_dpi, text_pdf=r.ocr.text_pdf if r.ocr else b"",
                              source_pdf=source_pdf, source_index=r.source.index, rotation=r.rotation)
                 for r in doc_pages
-                if r.ocr is not None
             ]
-            if not asm:
+            if not any(r.ocr is not None for r in doc_pages):
                 warnings.append(f"document {seq} has no OCR'd pages; skipped")
                 continue
             langs = sorted({r.ocr.languages for r in doc_pages if r.ocr})
             try:
                 build_pdf(asm, tmp_pdf, title=base, pdfa=pdfa, size=out_cfg.get("size", "original"),
-                          jpeg_quality=int(out_cfg.get("jpeg_quality", 75)))
+                          jpeg_quality=int(out_cfg.get("jpeg_quality", 50)))
                 pdfa_status = "converted"
             except PdfaWarning as w:
                 pdfa_status = "written; PDF/A validity not confirmed"
