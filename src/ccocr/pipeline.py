@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__
-from .assemble import AssemblyPage, PdfaWarning, build_pdf, ocrmypdf_version
+from .assemble import AssemblyPage, PdfaWarning, build_pdf, ocrmypdf_version, source_as_pdf
 from .ingest import SourcePage, load_batch, sha256_file
 from .naming import NamingError, build_name, unique_path
 from .ocr import OsdResult, PageOcr, detect_osd, ocr_page, rotate_upright, tesseract_version
@@ -220,6 +221,12 @@ def process_batch(
     required_ts = bool(ts_cfg.get("required", True)) and ts_cfg.get("mode") != "none"
     stage = out_dir / f".staging-{job_id}"
     stage.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="ccocr-src-"))
+    # Reuse the scan's own pages (no re-encoding) unless the optimised image was asked for.
+    source_pdf = (
+        source_as_pdf(batch, workdir, len(results))
+        if profile["optimiser"].get("pdf_image", "original") == "original" else None
+    )
     try:
         for seq, doc in enumerate(plan.documents, start=1):
             doc_pages = [results[i] for i in doc.pages]
@@ -253,7 +260,8 @@ def process_batch(
             pdf_path = stage / f"{base}.pdf"
             tmp_pdf = stage / f".{base}.pdf.part"
             asm = [
-                AssemblyPage(image=r.pdf_image, dpi=r.opt.pdf_dpi, text_pdf=r.ocr.text_pdf)  # type: ignore[union-attr]
+                AssemblyPage(image=r.pdf_image, dpi=r.opt.pdf_dpi, text_pdf=r.ocr.text_pdf,  # type: ignore[union-attr]
+                             source_pdf=source_pdf, source_index=r.source.index, rotation=r.rotation)
                 for r in doc_pages
                 if r.ocr is not None
             ]
@@ -262,7 +270,8 @@ def process_batch(
                 continue
             langs = sorted({r.ocr.languages for r in doc_pages if r.ocr})
             try:
-                build_pdf(asm, tmp_pdf, title=base, pdfa=pdfa)
+                build_pdf(asm, tmp_pdf, title=base, pdfa=pdfa, size=out_cfg.get("size", "original"),
+                          jpeg_quality=int(out_cfg.get("jpeg_quality", 75)))
                 pdfa_status = "converted"
             except PdfaWarning as w:
                 pdfa_status = "written; PDF/A validity not confirmed"
@@ -381,6 +390,8 @@ def process_batch(
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
     for f in sorted(stage.iterdir()):
         if not f.name.startswith("."):
             os.replace(f, out_dir / f.name)

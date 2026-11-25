@@ -139,3 +139,47 @@ def test_single_mode_timestamp_verifies_and_detects_tampering(single):
     bad.write_bytes(bytes(data))
     ok, _ = verify_pdf(bad, cfg)
     assert not ok
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract not installed")
+def test_original_scan_streams_are_kept_and_text_aligned(tmp_path):
+    """A JPEG scan stays JPEG (no lossless re-encoding), and a page turned by /Rotate keeps
+    its text layer on top of the words."""
+    import io
+
+    import img2pdf
+    import pikepdf
+    import pypdfium2 as pdfium
+    from PIL import Image, ImageSequence
+    from synth import demo_batch
+
+    from ccocr.pipeline import process_batch
+    from ccocr.profile import load_profile
+
+    demo_batch(tmp_path / "demo.tif")
+    first = next(ImageSequence.Iterator(Image.open(tmp_path / "demo.tif"))).copy().convert("L")
+    jpgs = []
+    for img in (first, first.rotate(-90, expand=True)):
+        b = io.BytesIO()
+        img.save(b, "JPEG", quality=80, dpi=(300, 300))
+        jpgs.append(b.getvalue())
+    src = tmp_path / "scan.pdf"
+    src.write_bytes(img2pdf.convert(jpgs))
+    with pikepdf.open(src, allow_overwriting_input=True) as pdf:
+        pdf.pages[1].obj.Rotate = 90
+        pdf.save(src)
+    prof = load_profile({"timestamp": {"mode": "none"}, "split": {"proposals": [], "auto_accept": True}})
+    process_batch(src, prof, tmp_path / "out")
+    out = next((tmp_path / "out").glob("*.pdf"))
+    assert out.stat().st_size < src.stat().st_size * 1.2
+    with pikepdf.open(out) as pdf:
+        for page in pdf.pages:
+            (img,) = page.images.values()
+            filters = img.get("/Filter")
+            names = [str(f) for f in filters] if isinstance(filters, pikepdf.Array) else [str(filters)]
+            assert "/DCTDecode" in names
+    doc = pdfium.PdfDocument(str(out))
+    for i in range(2):
+        tp = doc[i].get_textpage()
+        assert "RAČUN" in tp.get_text_range()
+    doc.close()

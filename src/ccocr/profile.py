@@ -60,6 +60,10 @@ DEFAULTS: dict[str, Any] = {
         "date_format": "%Y-%m-%d",
         "max_length": 120,
         "on_collision": "suffix",
+        # File size: original = scan images kept as they are (lossless only);
+        # compact = smallest file, colour/grey images re-compressed (text stays sharp).
+        "size": "original",
+        "jpeg_quality": 75,
     },
     "timestamp": {
         "mode": "openssl-local",  # openssl-local | http | none
@@ -124,6 +128,10 @@ def load_profile(source: str | Path | dict[str, Any] | None) -> Profile:
     for m in raw["output"]["metadata"]:
         if m not in {"xml", "sidecar-xml", "filename"}:
             raise ProfileError(f"unknown output.metadata mode {m!r}")
+    if raw["output"]["size"] not in {"original", "compact"}:
+        raise ProfileError("output.size must be 'original' or 'compact'")
+    if not 30 <= int(raw["output"]["jpeg_quality"]) <= 95:
+        raise ProfileError("output.jpeg_quality must be between 30 and 95")
     if raw["output"]["package"] not in {"single", "sidecars"}:
         raise ProfileError("output.package must be 'single' or 'sidecars'")
     if raw["timestamp"]["mode"] not in {"openssl-local", "http", "none"}:

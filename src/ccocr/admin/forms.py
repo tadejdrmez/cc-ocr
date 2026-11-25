@@ -90,6 +90,11 @@ SECTIONS: list[tuple[str, str, list[Field]]] = [
         Field("output.package", "Output package", "select", "",
               [("single", "One PDF/A-3 per document (XML embedded, PDF timestamp)"),
                ("sidecars", "PDF/A-2 with .xml, .manifest.xml and .tsr next to it")]),
+        Field("output.size", "File size", "select",
+              "Original keeps the scan images exactly as scanned. Compact makes the smallest file: colour and grey images "
+              "are re-compressed; black-and-white pages and the text layer stay lossless.",
+              [("original", "Original images (lossless)"), ("compact", "Compact (smallest file)")]),
+        Field("output.jpeg_quality", "Compact: JPEG quality", "int", "30 to 95. Lower = smaller files.", min=30, max=95),
         Field("output.metadata", "Metadata", "multi", "",
               [("xml", "Metadata XML"), ("filename", "Metadata in the file name")]),
         Field("output.naming", "File name pattern", "text",

@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tesseract-ocr tesseract-ocr-osd \
         tesseract-ocr-slv tesseract-ocr-eng tesseract-ocr-hrv tesseract-ocr-srp \
         tesseract-ocr-srp-latn tesseract-ocr-bos tesseract-ocr-sqi \
-        python3 python3-venv ghostscript qpdf pngquant openssl fonts-dejavu-core libglib2.0-0 tini \
+        python3 python3-venv ghostscript qpdf pngquant jbig2 openssl fonts-dejavu-core libglib2.0-0 tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
