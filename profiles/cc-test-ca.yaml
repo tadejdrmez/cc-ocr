@@ -35,7 +35,7 @@ output:
 
 timestamp:
   mode: http
-  url: http://pki-test.comp-consulting.eu:8318/tsa
+  url: http://pki-test.comp-consulting.eu:8318/tsa/ocr   # CC TEST OCR TSU 01, needs CCOCR_TSA_USER/PASSWORD
   ca_file: /data/.ccocr/trust/root.pem
   chain_file: /data/.ccocr/trust/chain.pem
   embed_validation: true     # store OCSP/CRL of the TSA chain in the PDF (validates offline later)
